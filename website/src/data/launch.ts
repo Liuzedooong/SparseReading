@@ -189,7 +189,7 @@ export const authors = [
 export const paper = claimsFile.paper;
 export const setup = claimsFile.setup;
 
-export const CANONICAL = "https://zedong-liu.github.io/SparseReading/";
+export const CANONICAL = new URL(import.meta.env.BASE_URL, import.meta.env.SITE).href;
 
 export function fmtInt(n: number): string {
   return n.toLocaleString("en-US");

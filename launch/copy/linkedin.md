@@ -13,7 +13,7 @@ This is not only a weak-model patch. Claude Opus 5, the strongest model evaluate
 It does not replace native tools on every request. Force mode on a low-sparsity SPARQL / global-statistics task increases tokens by +309.2%. Knowing when to step aside is part of the design.
 
 Paper: https://arxiv.org/pdf/2608.22237
-Code / no-key replay: https://github.com/Zedong-Liu/SparseReading (`make demo`)
+Code / no-key replay: https://github.com/Liuzedooong/SparseReading (`make demo`)
 
 A longer-term question — not a result we measured — is whether future agent training should treat “what to read, how much, and when to stop” as a first-class skill next to tool use.
 

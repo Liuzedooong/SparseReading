@@ -4,8 +4,8 @@
 
 SparseRead is a training-free reading layer that admits only the evidence needed for the next decision, instead of dumping whole files, PDFs, or repositories into context.
 
-- Website: https://zedong-liu.github.io/SparseReading/
-- Code: https://github.com/Zedong-Liu/SparseReading
+- Website: https://sparseread.pages.dev/
+- Code: https://github.com/Liuzedooong/SparseReading
 - Paper: https://arxiv.org/abs/2608.22237
 - PDF: https://arxiv.org/pdf/2608.22237
 

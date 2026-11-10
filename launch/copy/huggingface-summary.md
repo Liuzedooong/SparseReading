@@ -18,7 +18,7 @@ Paper: [Read Less, Solve More: Token-Efficient Sparse Reading for AI Agents](htt
 
 ## Code
 
-https://github.com/Zedong-Liu/SparseReading
+https://github.com/Liuzedooong/SparseReading
 
 ## Reproduce (this checkout)
 

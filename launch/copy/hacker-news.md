@@ -25,7 +25,7 @@ What this checkout can reproduce, with no API key:
 
 What it cannot: the 125-task / 30-cell Figure 7 source table; Claude Opus 5 or Kimi-K2.5 traces (Opus range is paper-only); Claw-Eval and materials-chemistry fixtures; a live rerun of the public matrix.
 
-Code: https://github.com/Zedong-Liu/SparseReading
+Code: https://github.com/Liuzedooong/SparseReading
 Paper: https://arxiv.org/pdf/2608.22237
 
 Open questions we would rather hear from this community than paper over: how a learned Read Gate would compare to the deterministic `force` / `advisory` / `native` controller; whether a specialized compressor should register as a Reader Backend instead of sitting after the broad read; how prefix-cache reuse interacts with serving stacks we did not measure as dollar cost.

@@ -34,7 +34,7 @@ const {
 const base = import.meta.env.BASE_URL;
 const reviewMode = import.meta.env.DEV;
 const siteName = "SparseRead";
-const og = `${canonical ?? "https://zedong-liu.github.io/SparseReading/"}og.png`;
+const og = new URL("og.png", canonical ?? new URL(base, import.meta.env.SITE).href).href;
 ---
 <!doctype html>
 <html lang="en" data-theme="dark">
@@ -123,7 +123,7 @@ const og = `${canonical ?? "https://zedong-liu.github.io/SparseReading/"}og.png`
           <a href={`${base}#cite`}>Cite</a>
           <a href={`${base}#faq`}>FAQ</a>
           {reviewMode && <a href={`${base}review/`}>Review drafts</a>}
-          <a href="https://github.com/Zedong-Liu/SparseReading">GitHub</a>
+          <a href="https://github.com/Liuzedooong/SparseReading">GitHub</a>
         </nav>
         <div class="header-tools">
           <slot name="header-tools" />
@@ -133,9 +133,28 @@ const og = `${canonical ?? "https://zedong-liu.github.io/SparseReading/"}og.png`
     </header>
     <slot />
     <footer class="site-footer">
-      {reviewMode
-        ? "Static site. No API key required. This launch workspace does not publish GitHub Pages."
-        : "SparseRead · token-efficient reading for AI agents · no API key required."}
+      <span class="site-footer-copy">
+        {reviewMode
+          ? "Static site. No API key required. This launch workspace does not publish GitHub Pages."
+          : "SparseRead · token-efficient reading for AI agents · no API key required."}
+      </span>
+      {!reviewMode && (
+        <span class="site-view-counter" aria-label="Total page views" title="Total page views (external counter)">
+          <svg class="site-view-eye" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3.8-6.6 10-6.6S22 12 22 12s-3.8 6.6-10 6.6S2 12 2 12Z" />
+            <circle cx="12" cy="12" r="2.7" />
+          </svg>
+          <img
+            class="site-view-badge"
+            src="https://hits.sh/zedong-liu.sparseread-official-website.svg?label=views&amp;style=flat-square&amp;color=5a606a&amp;labelColor=5a606a"
+            alt="Total site views"
+            width="60"
+            height="20"
+            decoding="async"
+            referrerpolicy="no-referrer"
+          />
+        </span>
+      )}
     </footer>
   </body>
 </html>

@@ -15,7 +15,7 @@ paper:
   version: v1
   title: "Read Less, Solve More: Token-Efficient Sparse Reading for AI Agents"
   url: "https://arxiv.org/pdf/2608.22237"
-  github: "https://github.com/Zedong-Liu/SparseReading"
+  github: "https://github.com/Liuzedooong/SparseReading"
   submitted: "2026-08-23"
 
 setup:

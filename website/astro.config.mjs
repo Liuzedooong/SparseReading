@@ -3,8 +3,8 @@ import sitemap from "@astrojs/sitemap";
 import { defineConfig } from "astro/config";
 
 export default defineConfig({
-  site: "https://zedong-liu.github.io",
-  base: process.env.SPARSEREAD_BASE || "/SparseReading/",
+  site: process.env.SPARSEREAD_SITE || "https://sparseread.pages.dev",
+  base: process.env.SPARSEREAD_BASE || "/",
   integrations: [
     react(),
     sitemap({
