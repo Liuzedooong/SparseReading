@@ -10,7 +10,7 @@ Hi [Name],
 
 We used [framework] as one of the three harnesses in SparseRead (arXiv:2608.22237; NanoBot v0.2.0, OpenCode v1.17.14, OpenClaw v2026.6.11). The artifact is a thin adapter around a shared pre-reading runtime — Read Gate + typed Reader Backends + a stateful Evidence State — not a new agent and not an observation compressor.
 
-The shortest look is `make demo` on https://github.com/Zedong-Liu/SparseReading (REPLAY, no API key) and the paper: https://arxiv.org/pdf/2608.22237. We would value a sanity check on whether the adapter surface matches how [framework] now routes file/open events.
+The shortest look is `make demo` on https://github.com/Liuzedooong/SparseReading (REPLAY, no API key) and the paper: https://arxiv.org/pdf/2608.22237. We would value a sanity check on whether the adapter surface matches how [framework] now routes file/open events.
 
 We are not claiming a win on every task. Force mode on a SPARQL / global-statistics task increases tokens by +309.2%. Median token reduction also differs by harness (Table 1: 69.0% / 71.8% / 28.7%). Token volume is not dollar cost.
 
@@ -27,7 +27,7 @@ Your work on [ACON / observation masking / related] is one of the baselines we c
 
 The paper reports up to 92.9% token-volume reduction on a six-model / five-scenario NanoBot matrix, with quality not uniformly improved (26/30 cells, not 30/30). Figure 8 is n=1 per cell. Token volume is not dollar cost.
 
-If you have time, `make demo` at https://github.com/Zedong-Liu/SparseReading is a no-key replay, and the paper is at https://arxiv.org/pdf/2608.22237. We would welcome a critique of the protocol-vs-compressor distinction, especially where a compressor should instead register as a Reader Backend.
+If you have time, `make demo` at https://github.com/Liuzedooong/SparseReading is a no-key replay, and the paper is at https://arxiv.org/pdf/2608.22237. We would welcome a critique of the protocol-vs-compressor distinction, especially where a compressor should instead register as a Reader Backend.
 
 Thanks,
 [Sender]

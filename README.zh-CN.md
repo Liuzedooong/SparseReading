@@ -2,8 +2,9 @@
 
 Codex / Pi 框架适配已加入源码安装入口：
 
-`v0.1.3` 已包含两个适配。请从 [GitHub Release](https://github.com/Zedong-Liu/SparseReading/releases/tag/v0.1.3)
-下载 source-installer ZIP/tar.gz 并解压，或克隆仓库，在解压后的根目录运行：
+`v0.1.3` 已包含两个适配。可以下载 [v0.1.3 源码压缩包](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip)，或直接克隆本仓库，然后在项目根目录运行：
+
+原仓库的 Release 附件没有迁移，版本标签与源码仍然保留。
 
 ```bash
 uv run --python 3.12 python scripts/install_sparseread.py \
@@ -24,16 +25,16 @@ Pi 项目扩展也需用户批准。加 `--sparseread-mode advisory` 可仅使�
 SparseRead 是一个免训练、面向工具调用型 Agent 的阅读层。在大范围读取之前，
 先控制哪些证据真正进入模型上下文，同时保留来源锚点、细化、验证和原生回退能力。
 
-[![CI](https://github.com/Zedong-Liu/SparseReading/actions/workflows/ci.yml/badge.svg)](https://github.com/Zedong-Liu/SparseReading/actions/workflows/ci.yml)
+[![CI](https://github.com/Liuzedooong/SparseReading/actions/workflows/ci.yml/badge.svg)](https://github.com/Liuzedooong/SparseReading/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[论文](https://arxiv.org/abs/2608.22237) · [English](README.md)
+[论文](https://arxiv.org/abs/2608.22237) · [项目网站](https://sparseread.pages.dev/) · [English](README.md)
 
 </div>
 
 ## 🔥 最新动态
 
-- **2026-09-28：** [v0.1.3](https://github.com/Zedong-Liu/SparseReading/releases/tag/v0.1.3) 修复 Codex/Pi 在大型工作区切换完整原生读取时的超时。
-- **2026-09-28：** [v0.1.2](https://github.com/Zedong-Liu/SparseReading/releases/tag/v0.1.2) 新增 Codex 和 Pi 支持。
+- **2026-09-28：** [v0.1.3](https://github.com/Liuzedooong/SparseReading/releases/tag/v0.1.3) 修复 Codex/Pi 在大型工作区切换完整原生读取时的超时。
+- **2026-09-28：** [v0.1.2](https://github.com/Liuzedooong/SparseReading/releases/tag/v0.1.2) 新增 Codex 和 Pi 支持。
 - **2026-09-14：** 支持 Claude Code、OpenCode、OpenClaw 和 NanoBot 四个框架。
 
 <p align="center">
@@ -102,7 +103,7 @@ Node.js 22+，以及目标 Agent CLI。
 阅读器；只处理文本时可以加 `--reader-extras none`。
 
 ```bash
-git clone https://github.com/Zedong-Liu/SparseReading.git
+git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 
 # 先验证 core、adapter、bridge protocol 和 release fixture
@@ -229,3 +230,8 @@ PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integra
 ## 许可证
 
 SparseRead 使用 [MIT License](LICENSE) 发布。
+
+
+## 仓库迁移说明
+
+本仓库保留了原仓库的代码、提交历史、分支和标签，但属于独立仓库，没有继承 GitHub Fork 关系、Star、Issue、PR 和 Release 附件。

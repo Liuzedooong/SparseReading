@@ -6,7 +6,7 @@ product_name: SparseRead
 paper_title: "Read Less, Solve More: Token-Efficient Sparse Reading for AI Agents"
 arxiv_id: "2608.22237"
 arxiv_url: "https://arxiv.org/pdf/2608.22237"
-github_url: "https://github.com/Zedong-Liu/SparseReading"
+github_url: "https://github.com/Liuzedooong/SparseReading"
 tagline: "Your agent is burning tokens by reading everything. SparseRead makes it stop."
 one_line_definition: >-
   A pre-reading layer that stops agents from dumping whole files, repos, and

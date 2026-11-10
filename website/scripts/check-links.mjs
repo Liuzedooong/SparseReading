@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = resolve(ROOT, "dist");
-const BASE = "/SparseReading/";
+const BASE = process.env.SPARSEREAD_BASE || "/";
 
 function walk(dir) {
   const out = [];

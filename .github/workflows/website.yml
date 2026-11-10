@@ -1,5 +1,5 @@
-# Publish website/ to GitHub Pages: https://zedong-liu.github.io/SparseReading/
-name: website
+# Validate Cloudflare Pages build; do not deploy to GitHub Pages.
+name: website-build
 on:
   push:
     branches: [main]
@@ -9,22 +9,18 @@ on:
       - "launch/glossary.yaml"
       - "launch/citation.bib"
       - "launch/cases/flagship.yaml"
-      - "launch/copy/**"
-      - "launch/tools/check_claims.py"
       - "demo/cases/flagship/**"
       - "results/reports/two_scenario_three_model_baseline_comparison_20260723.csv"
       - ".github/workflows/website.yml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "launch/**"
+      - "demo/cases/flagship/**"
+      - ".github/workflows/website.yml"
   workflow_dispatch:
-
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: website/package-lock.json
       - run: npm ci
@@ -40,16 +36,7 @@ jobs:
       - run: npm run build
         working-directory: website
       - run: python3 launch/tools/check_claims.py
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: website/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Confirm live site canonical URL
+        run: |
+          grep -F 'https://sparseread.pages.dev/' website/dist/index.html
+          grep -F 'https://sparseread.pages.dev/' website/dist/robots.txt

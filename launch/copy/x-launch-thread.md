@@ -53,7 +53,7 @@ The Read Gate exists to stay out of that regime.
 ## 8
 
 Paper: https://arxiv.org/pdf/2608.22237
-Code: https://github.com/Zedong-Liu/SparseReading
+Code: https://github.com/Liuzedooong/SparseReading
 
 No-key replay: `make demo`
 

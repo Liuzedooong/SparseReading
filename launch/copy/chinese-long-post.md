@@ -18,7 +18,7 @@ SparseRead 把控制点前移。它是一层 training-free、对模型透明的 
 
 开源和无 key 回放：
 
-https://github.com/Zedong-Liu/SparseReading
+https://github.com/Liuzedooong/SparseReading
 
 ```bash
 make demo

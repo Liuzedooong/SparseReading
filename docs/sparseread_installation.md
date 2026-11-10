@@ -88,7 +88,7 @@ OpenClaw 插件声明的 host 版本要求是 `openclaw >= 2026.5.17`。更旧�
 从源码开始：
 
 ```bash
-git clone https://github.com/Zedong-Liu/SparseReading.git
+git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 ```
 

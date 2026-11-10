@@ -1,5 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://zedong-liu.github.io/SparseReading/sitemap.xml
-Sitemap: https://zedong-liu.github.io/SparseReading/sitemap-index.xml
+Sitemap: https://sparseread.pages.dev/sitemap.xml

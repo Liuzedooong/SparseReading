@@ -9,16 +9,16 @@ which evidence enters the model context before an agent pays the cost of a
 broad read—while keeping provenance, refinement, verification, and native
 fallbacks explicit.
 
-[![CI](https://github.com/Zedong-Liu/SparseReading/actions/workflows/ci.yml/badge.svg)](https://github.com/Zedong-Liu/SparseReading/actions/workflows/ci.yml)
+[![CI](https://github.com/Liuzedooong/SparseReading/actions/workflows/ci.yml/badge.svg)](https://github.com/Liuzedooong/SparseReading/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[Paper](https://arxiv.org/abs/2608.22237) · [Site](https://zedong-liu.github.io/SparseReading/) · [中文](README.zh-CN.md)
+[Paper](https://arxiv.org/abs/2608.22237) · [Site](https://sparseread.pages.dev/) · [中文](README.zh-CN.md)
 
 </div>
 
 ## 🔥 News
 
-- **2026-09-28:** [v0.1.3](https://github.com/Zedong-Liu/SparseReading/releases/tag/v0.1.3) fixes a large-workspace timeout when switching to full-fidelity native reading in Codex/Pi.
-- **2026-09-28:** Added Codex and Pi support in [v0.1.2](https://github.com/Zedong-Liu/SparseReading/releases/tag/v0.1.2).
+- **2026-09-28:** [v0.1.3](https://github.com/Liuzedooong/SparseReading/releases/tag/v0.1.3) fixes a large-workspace timeout when switching to full-fidelity native reading in Codex/Pi.
+- **2026-09-28:** Added Codex and Pi support in [v0.1.2](https://github.com/Liuzedooong/SparseReading/releases/tag/v0.1.2).
 - **2026-09-14:** Support for Claude Code, OpenCode, OpenClaw, and NanoBot.
 
 <p align="center">
@@ -96,7 +96,7 @@ pass `--python /path/to/python3.12`; PDF/XLSX readers are installed by default,
 and `--reader-extras none` is available for text-only installations.
 
 ```bash
-git clone https://github.com/Zedong-Liu/SparseReading.git
+git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 
 # Verify the core, adapters, bridge protocol, and release fixture first.
@@ -108,9 +108,9 @@ Choose one integration:
 
 Codex and Pi use the same core with project-scoped frontend adapters:
 
-Codex and Pi are included in `v0.1.3`. Download the source installer ZIP/tar.gz
-from [GitHub Releases](https://github.com/Zedong-Liu/SparseReading/releases/tag/v0.1.3)
-and extract it, or clone the repository. Run the commands below from its root.
+Codex and Pi are included in v0.1.3. Clone this repository or download
+the [v0.1.3 tagged source archive](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip).
+Original release attachments were not migrated; run the installer from the source root.
 
 ```bash
 uv run --python 3.12 python scripts/install_sparseread.py \
@@ -267,3 +267,8 @@ Bug reports and focused integration feedback are welcome.
 ## License
 
 SparseRead is released under the [MIT License](LICENSE).
+
+
+## Repository migration
+
+This is an independent continuation of the original source repository. It preserves Git commit history, branches and tags, but does not inherit the GitHub Fork relation, stars, issues, pull requests or release attachments.

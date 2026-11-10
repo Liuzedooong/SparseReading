@@ -24,7 +24,7 @@ PDF/XLSX reader dependencies are installed by default; use
 ## Verify a checkout
 
 ```bash
-git clone https://github.com/Zedong-Liu/SparseReading.git
+git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 
 PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integrations/opencode/python/src:integrations/openclaw/python/src:integrations/claude/python/src" \
