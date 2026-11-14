@@ -171,7 +171,9 @@ def handle_event(
     if path is None:
         return None
 
-    session_id = str(event.get("session_id") or "codex-session")
+    session_id = event.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        return None
     context = {
         "session_id": session_id,
         "turn_id": str(event.get("turn_id") or ""),
@@ -220,6 +222,7 @@ def handle_event(
                 }
             }
     except Exception:
+        print("[sparseread] hook fallback: bridge or state unavailable", file=sys.stderr)
         return None
     return None
 
@@ -263,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.flush()
     except Exception:
         # An unavailable hook must never prevent Codex's native permission flow.
+        print("[sparseread] hook fallback: hook execution unavailable", file=sys.stderr)
         return 0
     return 0
 

@@ -19,7 +19,8 @@ function loadRuntime() {
   return runtime
 }
 
-function failOpen() {
+function failOpen(reason) {
+  process.stderr.write(`[sparseread] hook fallback: ${reason}\n`)
   process.stdout.write("{}\n")
 }
 
@@ -27,7 +28,7 @@ function sessionStart() {
   try {
     loadRuntime()
   } catch {
-    failOpen()
+    failOpen("invalid runtime")
     return
   }
   process.stdout.write(JSON.stringify({
@@ -46,7 +47,7 @@ function runHook() {
     runtime = loadRuntime()
     input = readFileSync(0, "utf8")
   } catch {
-    failOpen()
+    failOpen("invalid runtime or hook input")
     return
   }
   const result = spawnSync(
@@ -63,8 +64,11 @@ function runHook() {
     },
   )
   if (result.error || result.status !== 0) {
-    failOpen()
+    failOpen(result.error?.code === "ETIMEDOUT" ? "timeout" : "hook process failed")
     return
+  }
+  if (result.stderr?.includes("[sparseread] hook fallback:")) {
+    process.stderr.write("[sparseread] hook fallback: bridge or state unavailable\n")
   }
   if (result.stdout) process.stdout.write(result.stdout)
 }

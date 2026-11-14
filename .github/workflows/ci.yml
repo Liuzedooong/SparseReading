@@ -68,6 +68,19 @@ jobs:
             --platform opencode --opencode-workspace "$workspace" \
             --opencode-cmd "$RUNNER_TEMP/opencode-v2/node_modules/.bin/opencode" \
             --reader-extras none --skip-build --doctor
+      - name: Exercise installed Codex 0.169.0 plugin and MCP
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex-0169" --no-audit --no-fund @openai/codex@0.169.0
+          workspace="$(mktemp -d)"
+          mkdir -p "$RUNNER_TEMP/codex-test-home"
+          export CODEX_HOME="$RUNNER_TEMP/codex-test-home"
+          git init -q "$workspace"
+          printf '[projects."%s"]\ntrust_level = "trusted"\n' "$(realpath "$workspace")" > "$CODEX_HOME/config.toml"
+          uv run --no-project --python 3.12 python scripts/install_sparseread.py \
+            --platform codex --workspace "$workspace" --reader-extras none \
+            --codex-cmd "$RUNNER_TEMP/codex-0169/node_modules/.bin/codex" --doctor
+          managed_python="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["python"])' "$workspace/.sparseread/codex/sparseread-codex/.sparseread-runtime.json")"
+          "$managed_python" scripts/check_codex_plugin.py "$workspace" --codex "$RUNNER_TEMP/codex-0169/node_modules/.bin/codex"
       - name: Test installed Pi wheel runtime
         env:
           PI_CODING_AGENT_DIR: ${{ runner.temp }}/sparseread-pi-ci-home
