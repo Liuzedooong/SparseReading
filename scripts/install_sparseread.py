@@ -242,6 +242,25 @@ def opencode_runtime_dir(workspace: Path) -> Path:
     return workspace / ".sparseread" / "runtime" / "opencode"
 
 
+def opencode_global_root() -> Path:
+    override = os.environ.get("OPENCODE_CONFIG_DIR")
+    if override:
+        if not Path(override).is_absolute():
+            raise SystemExit("OpenCode --global requires an absolute OPENCODE_CONFIG_DIR; set an absolute path or unset it.")
+        return Path(override)
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    return (Path(xdg).expanduser() if xdg and Path(xdg).is_absolute() else Path.home() / ".config") / "opencode"
+
+
+def opencode_install_paths(args: argparse.Namespace) -> tuple[Path, Path, Path, Path]:
+    if getattr(args, "global_install", False):
+        root = opencode_global_root()
+        return root, root / "plugins" / "sparseread.js", root / "sparseread.json", root / "sparseread" / "runtime" / "opencode"
+    root = Path(args.opencode_workspace or os.getcwd()).expanduser().resolve()
+    legacy, config = opencode_workspace_paths(root)
+    return root, legacy, config, opencode_runtime_dir(root)
+
+
 def openclaw_runtime_dir(profile: str) -> Path:
     return openclaw_profile_config_path(profile).parent / "sparseread" / "runtime"
 
@@ -444,16 +463,18 @@ def opencode_major(command: str) -> int:
     return int(match.group(1))
 
 
-def validate_opencode_workspace(workspace: Path, major: int = 1) -> None:
-    plugin_target, config_target = opencode_workspace_paths(workspace)
+def validate_opencode_workspace(workspace: Path, major: int = 1, *, global_install: bool = False) -> None:
+    plugin_target, config_target = (workspace / "plugins" / "sparseread.js", workspace / "sparseread.json") if global_install else opencode_workspace_paths(workspace)
     if major == 2:
         plugin_target = plugin_target.parent / "sparseread" / "package.json"
     if not plugin_target.exists():
         raise SystemExit(f"OpenCode plugin file is missing: {plugin_target}")
     if not config_target.exists():
         raise SystemExit(f"OpenCode config is missing: {config_target}")
+    if global_install and not (plugin_target.parent / "global.json").is_file():
+        raise SystemExit("OpenCode global plugin marker is missing.")
     config = read_json(config_target)
-    if config.get("projectRoot") != str(workspace):
+    if (global_install and "projectRoot" in config) or (not global_install and config.get("projectRoot") != str(workspace)):
         raise SystemExit(f"OpenCode config has unexpected projectRoot: {config.get('projectRoot')}")
     if config.get("bridgeModule") != "sparseread_opencode.bridge":
         raise SystemExit(f"OpenCode config has unexpected bridgeModule: {config.get('bridgeModule')}")
@@ -831,7 +852,7 @@ def install_opencode_plugin_file(plugin_target: Path, *, dry_run: bool) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def install_opencode_v2(plugin_target: Path, *, dry_run: bool) -> None:
+def install_opencode_v2(plugin_target: Path, *, dry_run: bool, global_install: bool = False) -> None:
     if dry_run:
         return
     plugins = plugin_target.parent
@@ -849,6 +870,8 @@ def install_opencode_v2(plugin_target: Path, *, dry_run: bool) -> None:
         stage = Path(temporary) / "new"
         stage.mkdir()
         shutil.copy2(OPENCODE_PLUGIN / "dist" / "v2.js", stage / "v2.js")
+        if global_install:
+            write_json(stage / "global.json", {"global": True})
         shutil.copytree(OPENCODE_PLUGIN / "dist" / ".sparseread-transport", stage / ".sparseread-transport")
         sdk = stage / "node_modules" / "@opencode" / "plugin"
         sdk.parent.mkdir(parents=True)
@@ -870,7 +893,7 @@ def install_opencode_v2(plugin_target: Path, *, dry_run: bool) -> None:
             raise
 
 
-def validate_opencode_targets(workspace: Path) -> None:
+def validate_opencode_targets(workspace: Path, *, global_install: bool = False) -> None:
     """Reject symlink redirection and collisions before changing managed files."""
     relative_paths = (
         ".opencode", ".opencode/plugins", ".opencode/plugins/sparseread.js",
@@ -878,11 +901,13 @@ def validate_opencode_targets(workspace: Path) -> None:
         ".opencode/plugins/.sparseread-transport/transport.js", ".opencode/sparseread.json",
         ".sparseread", ".sparseread/runtime", ".sparseread/runtime/opencode",
     )
+    if global_install:
+        relative_paths = (".", "plugins", "plugins/sparseread.js", "plugins/sparseread", "plugins/.sparseread-transport", "plugins/.sparseread-transport/transport.js", "sparseread.json", "sparseread", "sparseread/runtime", "sparseread/runtime/opencode")
     for relative in relative_paths:
         target = workspace / relative
         if target.is_symlink():
             raise SystemExit(f"Refusing symlink in OpenCode installation path: {target}")
-    legacy, _ = opencode_workspace_paths(workspace)
+    legacy = workspace / "plugins" / "sparseread.js" if global_install else opencode_workspace_paths(workspace)[0]
     if legacy.exists() and (not legacy.is_file() or not any(marker in legacy.read_text(encoding="utf-8") for marker in ("SparseReadOpenCodePlugin", "sparseread_opencode.bridge"))):
         raise SystemExit(f"Refusing to replace unmanaged plugin: {legacy}")
     v2 = legacy.parent / "sparseread"
@@ -897,13 +922,20 @@ def validate_opencode_targets(workspace: Path) -> None:
 
 def install_opencode(args: argparse.Namespace) -> None:
     profile = install_profile(args)
-    workspace = Path(args.opencode_workspace or os.getcwd()).expanduser().resolve()
-    legacy, config_target = opencode_workspace_paths(workspace)
+    global_install = getattr(args, "global_install", False)
+    workspace, legacy, config_target, runtime = opencode_install_paths(args)
     v2_target = legacy.parent / "sparseread"
     transport = legacy.parent / ".sparseread-transport" / "transport.js"
-    runtime = opencode_runtime_dir(workspace)
     major = opencode_major(args.opencode_cmd)
-    validate_opencode_targets(workspace)
+    if global_install and major != 2:
+        raise SystemExit("OpenCode --global requires V2; V1 lacks the required host permission binding.")
+    validate_opencode_targets(workspace, global_install=global_install)
+    if global_install and config_target.exists() and read_json(config_target).get("bridgeModule") != "sparseread_opencode.bridge":
+        raise SystemExit(f"Refusing to overwrite unmanaged OpenCode config: {config_target}")
+    if global_install and runtime.exists():
+        marker = v2_target / "global.json"
+        if not config_target.is_file() or not marker.is_file() or marker.is_symlink() or read_json(marker).get("global") is not True:
+            raise SystemExit(f"Refusing to replace unowned global OpenCode runtime: {runtime}")
     if not args.skip_build:
         npm_install_and_build(OPENCODE_PLUGIN, dry_run=args.dry_run)
     if args.dry_run:
@@ -932,13 +964,18 @@ def install_opencode(args: argparse.Namespace) -> None:
         config_target.parent.mkdir(parents=True, exist_ok=True)
         settings = read_json(config_target) if previous_config else {}
         settings.update(opencode_workspace_config(workspace, managed_python, profile.policy, profile.mode))
+        if global_install:
+            settings.pop("projectRoot", None)
         config_changed = True
         write_json(config_target, settings)
         if previous_config:
             config_target.chmod((transaction / "config").stat().st_mode)
         plugin_changed = True
         if major == 2:
-            install_opencode_v2(legacy, dry_run=False)
+            if global_install:
+                install_opencode_v2(legacy, dry_run=False, global_install=True)
+            else:
+                install_opencode_v2(legacy, dry_run=False)
             plugin_target = v2_target
         else:
             if v2_target.exists():
@@ -981,7 +1018,7 @@ def install_opencode(args: argparse.Namespace) -> None:
     finally:
         if not keep_backup:
             shutil.rmtree(transaction)
-    print(f"[opencode] install workspace: {workspace}")
+    print(f"[opencode] {'global config root' if global_install else 'install workspace'}: {workspace}")
     print(f"[opencode] plugin: {plugin_target}")
     print(f"[opencode] config: {config_target}")
     print("[opencode] launch with: opencode run ...")
@@ -1148,7 +1185,7 @@ def install_openclaw(args: argparse.Namespace) -> None:
     print("[openclaw] restart the gateway or start a new agent run after install")
 
 
-def bridge_smoke(python: Path, module: str, *, dry_run: bool) -> None:
+def bridge_smoke(python: Path, module: str, *, dry_run: bool, isolated: bool = False) -> None:
     with tempfile.TemporaryDirectory(prefix="sparseread-install-smoke-") as tmp:
         workspace = Path(tmp)
         target = workspace / "report.md"
@@ -1163,7 +1200,8 @@ def bridge_smoke(python: Path, module: str, *, dry_run: bool) -> None:
             ]
         )
         proc = run(
-            bridge_invocation(python, "-m", module, "--workspace", str(workspace), "--mode", "force"),
+            bridge_invocation(python, *(["-I"] if isolated else []), "-m", module, "--workspace", str(workspace), "--mode", "force"),
+            cwd=workspace if isolated else None,
             input_text=payload,
             check=False,
             dry_run=dry_run,
@@ -1183,10 +1221,13 @@ def doctor_opencode(args: argparse.Namespace) -> None:
     command_spec("node")
     command_spec("npm")
     major = opencode_major(args.opencode_cmd)
-    bridge_smoke(runtime_python(opencode_runtime_dir(Path(args.opencode_workspace or os.getcwd()).expanduser().resolve())), "sparseread_opencode.bridge", dry_run=args.dry_run)
+    global_install = getattr(args, "global_install", False)
+    if global_install and major != 2:
+        raise SystemExit("OpenCode --global requires V2; V1 lacks the required host permission binding.")
+    workspace, _, _, runtime = opencode_install_paths(args)
+    bridge_smoke(runtime_python(runtime), "sparseread_opencode.bridge", dry_run=args.dry_run, isolated=global_install)
     if not args.dry_run:
-        workspace = Path(args.opencode_workspace or os.getcwd()).expanduser().resolve()
-        validate_opencode_workspace(workspace, major)
+        validate_opencode_workspace(workspace, major, global_install=global_install)
         if major == 2:
             spec = importlib.util.spec_from_file_location("sparseread_opencode_doctor", ROOT / "integrations" / "opencode" / "doctor_v2.py")
             if spec is None or spec.loader is None:
@@ -1194,7 +1235,7 @@ def doctor_opencode(args: argparse.Namespace) -> None:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             try:
-                module.check(command_spec(args.opencode_cmd).argv(), workspace)
+                module.check(command_spec(args.opencode_cmd).argv(), workspace, global_install=global_install)
             except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
                 raise SystemExit(f"OpenCode V2 host doctor failed: {exc}") from exc
         else:
@@ -1263,7 +1304,9 @@ def parse_args() -> argparse.Namespace:
         choices=["opencode", "openclaw", "claude", "codex", "pi", "both"],
         default="both",
     )
-    parser.add_argument("--opencode-workspace", default="", help="Workspace to receive the OpenCode SparseRead plugin")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--opencode-workspace", default="", help="Workspace to receive the OpenCode SparseRead plugin")
+    scope.add_argument("--global", dest="global_install", action="store_true", help="Install for the current user (OpenCode V2 only)")
     parser.add_argument("--opencode-cmd", default="opencode")
     parser.add_argument("--openclaw-cmd", default="openclaw")
     parser.add_argument("--openclaw-profile", default="", help="Optional OpenClaw profile name")
@@ -1317,7 +1360,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--doctor", action="store_true", help="Run bridge/CLI checks after install")
     parser.add_argument("--doctor-only", action="store_true", help="Only run checks; do not install")
     parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.global_install and args.platform != "opencode":
+        parser.error("--global requires --platform opencode")
+    return args
 
 
 def main() -> int:

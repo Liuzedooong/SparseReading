@@ -135,3 +135,46 @@ test("collection root and every child are checked before reading", async t => {
   const calls = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse)
   assert.equal(calls.some(call => call.method === "preview"), false)
 })
+
+test("global V2 ignores project commands and runs an isolated interpreter from managed directory", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sro-global-"))
+  const pluginDir = path.join(root, "config", "opencode", "plugins", "sparseread")
+  const workspace = path.join(root, "workspace")
+  fs.mkdirSync(pluginDir, { recursive: true })
+  fs.mkdirSync(path.join(workspace, ".opencode"), { recursive: true })
+  fs.cpSync(new URL("../dist/", import.meta.url), pluginDir, { recursive: true })
+  fs.writeFileSync(path.join(pluginDir, "package.json"), '{"type":"module"}')
+  fs.writeFileSync(path.join(pluginDir, "global.json"), '{"global":true}')
+  fs.symlinkSync(fileURLToPath(new URL("../node_modules", import.meta.url)), path.join(pluginDir, "node_modules"))
+  const log = path.join(root, "bridge.log"), invocation = path.join(root, "invocation")
+  const executable = path.join(root, "config", "opencode", "sparseread", "runtime", "opencode", "bin", "python")
+  fs.mkdirSync(path.dirname(executable), { recursive: true })
+  fs.writeFileSync(executable, `#!/bin/sh\npwd > '${invocation}'\nprintf '%s\\n' "$@" >> '${invocation}'\nexec '${process.execPath}' '${fixture}' '${log}'\n`, { mode: 0o700 })
+  fs.writeFileSync(path.join(root, "config", "opencode", "sparseread.json"), JSON.stringify({ bridgeCommand: ["/malicious-global-setting"], policy: "observe", mode: "auto" }))
+  fs.writeFileSync(path.join(workspace, ".opencode", "sparseread.json"), JSON.stringify({ bridgeCommand: ["/malicious"], bridgeModule: "malicious", projectRoot: "/malicious" }))
+  const globalPlugin = (await import(new URL(`file://${path.join(pluginDir, "v2.js")}`))).default
+  const tools = new Map()
+  const registration = () => ({ dispose: async () => {} })
+  const ctx = {
+    options: { bridgeCommand: ["/malicious-option"] },
+    session: { get: async () => ({ location: { directory: workspace } }), hook: async () => registration() },
+    tool: { transform: async fn => { fn({ add: info => tools.set(info.name, info), update: () => {} }); return registration() }, hook: async () => registration() },
+    permission: { assert: async () => {} },
+    event: { subscribe: ({ signal }) => ({ async *[Symbol.asyncIterator]() { await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true })) } }) },
+  }
+  const cleanup = await globalPlugin.setup(ctx)
+  t.after(cleanup)
+  await tools.get("sro_preview").execute({ path: "data.txt" }, { sessionID: "s", messageID: "m", id: "c", agent: "a" })
+  const argv = fs.readFileSync(invocation, "utf8").trim().split("\n")
+  assert.equal(fs.realpathSync(argv[0]), fs.realpathSync(pluginDir))
+  assert.deepEqual(argv.slice(1, 4), ["-I", "-m", "sparseread_opencode.bridge"])
+  assert.equal(argv[argv.indexOf("--workspace") + 1], fs.realpathSync(workspace))
+  const preview = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse).find(x => x.method === "preview")
+  assert.equal(preview.params.path, path.join(fs.realpathSync(workspace), "data.txt"))
+  const managedConfig = path.join(root, "config", "opencode", "sparseread.json")
+  fs.unlinkSync(managedConfig)
+  await assert.rejects(tools.get("sro_preview").execute({ path: "data.txt" }, { sessionID: "missing-config", messageID: "m", id: "c", agent: "a" }), /Missing managed global SparseRead config/)
+  fs.writeFileSync(managedConfig, JSON.stringify({ policy: "observe", mode: "auto" }))
+  fs.unlinkSync(executable)
+  await assert.rejects(tools.get("sro_preview").execute({ path: "data.txt" }, { sessionID: "missing-runtime", messageID: "m", id: "c", agent: "a" }), /Missing managed global SparseRead runtime/)
+})

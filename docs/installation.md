@@ -64,6 +64,41 @@ starts an isolated local host and deterministic provider to exercise a synthetic
 preview. This validates host registration and invocation, not real-model task
 quality or performance. Remote workspaces are not supported by the local bridge.
 
+
+### Optional global OpenCode V2 install (development checkout only)
+
+This option is in the current development source; the published v0.1.4 ZIP
+does not include `--global`. From this checkout, run:
+
+```bash
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
+  --platform opencode --global --doctor
+```
+
+This installs for the current user under `$XDG_CONFIG_HOME/opencode` (or
+`~/.config/opencode` when unset). An absolute `OPENCODE_CONFIG_DIR` overrides
+that location; relative overrides are rejected. Project installation remains the default;
+`--global` cannot be combined with `--opencode-workspace` or another platform.
+Global installation requires OpenCode V2; V1 lacks the V2 permission binding.
+The bridge uses each local session's workspace and is unavailable for remote
+workspaces. Restart OpenCode after installation.
+
+In tested OpenCode 2.3.0, a global and a project plugin with the same
+`sparseread` ID are deduplicated: the global copy runs and the project copy can
+be reported as failed with `Duplicate plugin ID: sparseread`. The project files
+are left in place. To disable SparseRead in a project, add
+`"plugins": ["-sparseread"]` to that project's OpenCode configuration, merging
+with any existing plugin list; this disables both copies by ID. Alternatively,
+after reviewing it, remove an old project-local SparseRead plugin yourself.
+
+To remove the global installation, review and remove only its owned
+`plugins/sparseread` directory, `sparseread.json`, and
+`sparseread/runtime/opencode` under the global OpenCode configuration root.
+Do not remove other plugins or the OpenCode configuration directory. With the
+global copy removed, a retained project-local copy can take effect again.
+`--doctor` uses an isolated deterministic provider; it is not a model-quality
+or performance evaluation.
+
 OpenClaw:
 
 ```bash
@@ -114,7 +149,7 @@ protocol.
 
 ## Platform notes
 
-- OpenCode uses a workspace plugin plus a managed Python bridge.
+- OpenCode uses a workspace plugin or an optional V2 global plugin plus a managed Python bridge.
 - OpenClaw uses a packed npm plugin plus a managed Python bridge.
 - Claude Code uses an MCP stdio server, `PreToolUse`/`PostToolUse` hooks, and a
   generated `CLAUDE.md` when the workspace does not already have one. The
