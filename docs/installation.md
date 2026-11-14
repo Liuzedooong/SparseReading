@@ -83,6 +83,16 @@ Global installation requires OpenCode V2; V1 lacks the V2 permission binding.
 The bridge uses each local session's workspace and is unavailable for remote
 workspaces. Restart OpenCode after installation.
 
+A fresh global install defaults to `advisory`; a reinstall without an explicit
+mode retains the existing policy and bridge mode. Switching to auto requires rerunning
+the installer with `--platform opencode --global --sparseread-mode auto`, then
+restarting OpenCode. In the local terminal UI, 24 hours after the first successful
+nonempty `sro_read` evidence result in advisory mode, the next such use displays
+a one-time suggestion to consider auto. No mode changes automatically. The suggestion requires
+the local TUI to be open during a qualifying use; headless runs do not show it.
+The feature stores only the first-use time and a shown marker, without source
+paths or content.
+
 In tested OpenCode 2.3.0, a global and a project plugin with the same
 `sparseread` ID are deduplicated: the global copy runs and the project copy can
 be reported as failed with `Duplicate plugin ID: sparseread`. The project files
@@ -92,8 +102,9 @@ with any existing plugin list; this disables both copies by ID. Alternatively,
 after reviewing it, remove an old project-local SparseRead plugin yourself.
 
 To remove the global installation, review and remove only its owned
-`plugins/sparseread` directory, `sparseread.json`, and
-`sparseread/runtime/opencode` under the global OpenCode configuration root.
+`plugins/sparseread` directory, `sparseread.json`,
+`sparseread/runtime/opencode`, and, if present, `sparseread/onboarding` under
+the global OpenCode configuration root.
 Do not remove other plugins or the OpenCode configuration directory. With the
 global copy removed, a retained project-local copy can take effect again.
 `--doctor` uses an isolated deterministic provider; it is not a model-quality
@@ -138,7 +149,7 @@ Windows are not qualified by these tests.
 
 ## Modes
 
-The default `auto` mode routes high-confidence sparse-reading tasks through
+The default `auto` mode (except for a fresh OpenCode V2 global install) routes high-confidence sparse-reading tasks through
 SparseRead while leaving small or computation-heavy tasks native. Use
 `advisory` when you want the tools and model guidance without intercepting
 native reads.

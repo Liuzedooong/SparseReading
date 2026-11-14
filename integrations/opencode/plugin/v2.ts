@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { SparseReadBridge } from "./.sparseread-transport/transport.js"
+import { isEvidence, recordEvidence } from "./onboarding.js"
 
 type Obj = Record<string, any>
 const object = (x: unknown): x is Obj => typeof x === "object" && x !== null && !Array.isArray(x)
@@ -153,7 +154,12 @@ export default Plugin.define({
       const token = method === "trace" ? undefined : await authorize(rt, args, c)
       const result = await rt.bridge.request(method, { ...args, context, ...(token ? { manifest_token: token } : {}) }, c.signal)
       const output = method === "trace" ? { ...result, native_events: rt.events } : result
-      return { content: JSON.stringify(output), output, metadata: { sparseread: true, method } }
+      let advisoryEvidence = false
+      if (globalInstall && method === "read" && rt.policy === "advisory" && isEvidence(result)) {
+        try { advisoryEvidence = config(rt.root, {}).policy === "advisory" } catch { /* ancillary state is optional */ }
+        if (advisoryEvidence) recordEvidence(pluginDir)
+      }
+      return { content: JSON.stringify(output), output, metadata: { sparseread: true, method, ...(advisoryEvidence ? { sparsereadAdvisoryEvidence: true } : {}) } }
     }
     registrations.push(await ctx.tool.transform(editor => {
       for (const method of Object.keys(schemas)) editor.add({ name: `sro_${method}`, input: schemas[method] as any, output: { type: "object", additionalProperties: true }, description: descriptions[method], options: { codemode: false }, execute: execute(method) } as any)

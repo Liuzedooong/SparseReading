@@ -870,14 +870,19 @@ def install_opencode_v2(plugin_target: Path, *, dry_run: bool, global_install: b
         stage = Path(temporary) / "new"
         stage.mkdir()
         shutil.copy2(OPENCODE_PLUGIN / "dist" / "v2.js", stage / "v2.js")
+        shutil.copy2(OPENCODE_PLUGIN / "dist" / "onboarding.js", stage / "onboarding.js")
         if global_install:
+            shutil.copy2(OPENCODE_PLUGIN / "dist" / "tui.js", stage / "tui.js")
             write_json(stage / "global.json", {"global": True})
         shutil.copytree(OPENCODE_PLUGIN / "dist" / ".sparseread-transport", stage / ".sparseread-transport")
         sdk = stage / "node_modules" / "@opencode" / "plugin"
         sdk.parent.mkdir(parents=True)
         shutil.copytree(OPENCODE_PLUGIN / "node_modules" / "@opencode" / "plugin", sdk)
         version = read_json(OPENCODE_PLUGIN / "package.json")["version"]
-        write_json(stage / "package.json", {"name": "sparseread-opencode-v2", "version": version, "type": "module", "exports": {".": "./v2.js"}})
+        exports = {".": "./v2.js"}
+        if global_install:
+            exports["./tui"] = "./tui.js"
+        write_json(stage / "package.json", {"name": "sparseread-opencode-v2", "version": version, "type": "module", "exports": exports})
         backup = Path(temporary) / "old"
         if target.exists():
             target.rename(backup)
@@ -920,6 +925,17 @@ def validate_opencode_targets(workspace: Path, *, global_install: bool = False) 
         raise SystemExit(f"Refusing to replace unmanaged transport: {transport}")
 
 
+def opencode_global_modes(args: argparse.Namespace, previous: dict | None) -> tuple[str, str]:
+    policies = ("observe", "advisory", "enforce", "native", "auto")
+    modes = ("auto", "bench_protocol", "force", "force_sro", "native", "advisory")
+    if previous is not None and (previous.get("policy") not in policies or previous.get("mode") not in modes):
+        raise SystemExit("Existing global OpenCode SparseRead policy or mode is invalid; fix the config before reinstalling.")
+    explicit = getattr(args, "sparseread_mode", None)
+    policy = explicit or getattr(args, "policy", None) or (previous["policy"] if previous else "advisory")
+    mode = getattr(args, "mode", None) or ("auto" if explicit else previous["mode"] if previous else "auto")
+    return policy, mode
+
+
 def install_opencode(args: argparse.Namespace) -> None:
     profile = install_profile(args)
     global_install = getattr(args, "global_install", False)
@@ -932,6 +948,8 @@ def install_opencode(args: argparse.Namespace) -> None:
     validate_opencode_targets(workspace, global_install=global_install)
     if global_install and config_target.exists() and read_json(config_target).get("bridgeModule") != "sparseread_opencode.bridge":
         raise SystemExit(f"Refusing to overwrite unmanaged OpenCode config: {config_target}")
+    if global_install:
+        opencode_global_modes(args, read_json(config_target) if config_target.exists() else None)
     if global_install and runtime.exists():
         marker = v2_target / "global.json"
         if not config_target.is_file() or not marker.is_file() or marker.is_symlink() or read_json(marker).get("global") is not True:
@@ -963,7 +981,11 @@ def install_opencode(args: argparse.Namespace) -> None:
             upgrade_existing=True, upgrade_backup=transaction / "runtime")
         config_target.parent.mkdir(parents=True, exist_ok=True)
         settings = read_json(config_target) if previous_config else {}
-        settings.update(opencode_workspace_config(workspace, managed_python, profile.policy, profile.mode))
+        if global_install:
+            policy, mode = opencode_global_modes(args, settings if previous_config else None)
+        else:
+            policy, mode = profile.policy, profile.mode
+        settings.update(opencode_workspace_config(workspace, managed_python, policy, mode))
         if global_install:
             settings.pop("projectRoot", None)
         config_changed = True
@@ -1332,9 +1354,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sparseread-mode",
         choices=["auto", "advisory"],
-        default="auto",
+        default=None,
         help=(
-            "User-facing SparseRead mode. auto is the default: gate-controlled interception for "
+            "User-facing SparseRead mode. auto is the default except for a fresh OpenCode global install (advisory): gate-controlled interception for "
             "high-benefit reads. advisory registers tools/prompts only and never intercepts native reads."
         ),
     )
@@ -1363,6 +1385,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.global_install and args.platform != "opencode":
         parser.error("--global requires --platform opencode")
+    if not args.global_install and args.sparseread_mode is None:
+        args.sparseread_mode = "auto"
     return args
 
 

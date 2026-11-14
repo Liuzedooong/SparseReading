@@ -443,6 +443,7 @@ def test_opencode_v2_install_is_idempotent_and_preserves_other_plugins(monkeypat
     source = tmp_path / "build"
     (source / "dist" / ".sparseread-transport").mkdir(parents=True)
     (source / "dist" / "v2.js").write_text("// v2", encoding="utf-8")
+    (source / "dist" / "onboarding.js").write_text("// onboarding", encoding="utf-8")
     (source / "dist" / ".sparseread-transport" / "transport.js").write_text("// transport", encoding="utf-8")
     sdk = source / "node_modules" / "@opencode" / "plugin"
     sdk.mkdir(parents=True)
@@ -717,7 +718,7 @@ def test_opencode_global_rollback_and_collision(monkeypatch, tmp_path: Path) -> 
     with pytest.raises(SystemExit, match="unmanaged"):
         installer.install_opencode(args)
     assert json.loads(config.read_text()) == {"other": True}
-    config.write_text('{"bridgeModule":"sparseread_opencode.bridge", "custom":true}')
+    config.write_text('{"bridgeModule":"sparseread_opencode.bridge", "policy":"auto", "mode":"auto", "custom":true}')
     old = config.read_text()
     def runtime_install(runtime, *_a, **_kw):
         runtime.mkdir(parents=True)
@@ -764,3 +765,74 @@ def test_opencode_global_refuses_unowned_venv(monkeypatch, tmp_path: Path) -> No
     with pytest.raises(SystemExit, match="unowned global"):
         installer.install_opencode(args)
     assert (runtime / "pyvenv.cfg").read_text() == "unrelated"
+
+
+def test_opencode_global_modes_preserve_existing_and_public_override() -> None:
+    import pytest
+    installer = load_installer()
+    args = SimpleNamespace(sparseread_mode=None, policy=None, mode=None)
+    assert installer.opencode_global_modes(args, None) == ("advisory", "auto")
+    for policy in ("auto", "advisory", "enforce", "observe", "native"):
+        previous = {"policy": policy, "mode": "force", "custom": True}
+        assert installer.opencode_global_modes(args, previous) == (policy, "force")
+        args.sparseread_mode = "advisory"
+        assert installer.opencode_global_modes(args, previous) == ("advisory", "auto")
+        args.sparseread_mode = "auto"
+        assert installer.opencode_global_modes(args, previous) == ("auto", "auto")
+        args.sparseread_mode = None
+    with pytest.raises(SystemExit, match="invalid"):
+        installer.opencode_global_modes(args, {"policy": "invalid", "mode": "auto"})
+    with pytest.raises(SystemExit, match="invalid"):
+        installer.opencode_global_modes(args, {"policy": [], "mode": "auto"})
+    assert installer.install_profile(args).policy == "auto"
+
+
+def test_cli_omitted_mode_is_distinct_from_explicit(monkeypatch) -> None:
+    installer = load_installer()
+    monkeypatch.setattr(sys, "argv", ["install", "--platform", "opencode", "--global"])
+    assert installer.parse_args().sparseread_mode is None
+    monkeypatch.setattr(sys, "argv", ["install", "--platform", "opencode", "--global", "--sparseread-mode", "auto"])
+    assert installer.parse_args().sparseread_mode == "auto"
+
+
+def test_other_hosts_keep_default_auto(monkeypatch) -> None:
+    installer = load_installer()
+    for host in ("opencode", "claude", "codex", "pi", "openclaw", "both"):
+        monkeypatch.setattr(sys, "argv", ["install", "--platform", host])
+        assert installer.parse_args().sparseread_mode == "auto"
+
+
+def test_opencode_global_install_fresh_reinstall_and_explicit_modes(monkeypatch, tmp_path: Path) -> None:
+    installer = load_installer()
+    monkeypatch.delenv("OPENCODE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(installer, "opencode_major", lambda *_: 2)
+    def fake_runtime(runtime, *_args, **_kwargs):
+        runtime.mkdir(parents=True, exist_ok=True)
+        (runtime / "pyvenv.cfg").write_text("fixture")
+        return installer.runtime_python(runtime)
+    def fake_plugin(legacy, **_kwargs):
+        target = legacy.parent / "sparseread"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "package.json").write_text('{"name":"sparseread-opencode-v2"}')
+        (target / "global.json").write_text('{"global":true}')
+    monkeypatch.setattr(installer, "install_python_runtime", fake_runtime)
+    monkeypatch.setattr(installer, "install_opencode_v2", fake_plugin)
+    args = SimpleNamespace(global_install=True, opencode_workspace="", opencode_cmd="opencode", sparseread_mode=None, skip_build=True, dry_run=False)
+    installer.install_opencode(args)
+    config = tmp_path / "opencode" / "sparseread.json"
+    settings = json.loads(config.read_text())
+    assert (settings["policy"], settings["mode"]) == ("advisory", "auto")
+    settings.update(policy="enforce", mode="force", custom={"preserved": True})
+    config.write_text(json.dumps(settings))
+    installer.install_opencode(args)
+    settings = json.loads(config.read_text())
+    assert (settings["policy"], settings["mode"], settings["custom"]) == ("enforce", "force", {"preserved": True})
+    args.sparseread_mode = "auto"
+    installer.install_opencode(args)
+    settings = json.loads(config.read_text())
+    assert (settings["policy"], settings["mode"]) == ("auto", "auto")
+    args.sparseread_mode = "advisory"
+    installer.install_opencode(args)
+    settings = json.loads(config.read_text())
+    assert (settings["policy"], settings["mode"], settings["custom"]) == ("advisory", "auto", {"preserved": True})

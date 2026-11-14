@@ -16,5 +16,9 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   }
   if (req.method === "decide") result = { opencode_gate: { block_native_read: true } }
   if (req.method === "preview") result = { artifact_id: "test" }
+  if (req.method === "read") {
+    const goal = req.params.hint?.goal
+    result = { evidence_pack: { error: goal === "error" ? "failed" : "", evidence: goal === "empty" ? [] : [{ text: "fixture evidence" }], ...(goal === "guard" ? { adapter_guard: "ready" } : {}) } }
+  }
   process.stdout.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n")
 }

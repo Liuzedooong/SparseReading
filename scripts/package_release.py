@@ -87,6 +87,8 @@ SOURCE_PATHS = (
     "integrations/opencode/plugin/sparseread.ts",
     "integrations/opencode/plugin/.npmrc",
     "integrations/opencode/plugin/v2.ts",
+    "integrations/opencode/plugin/tui.ts",
+    "integrations/opencode/plugin/onboarding.ts",
     "integrations/opencode/doctor_v2.py",
     "integrations/opencode/plugin/.sparseread-transport/transport.ts",
     "integrations/openclaw/plugin/openclaw.plugin.json",
