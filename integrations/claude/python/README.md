@@ -1,19 +1,16 @@
 # sparseread-claude
 
-Claude Code adapter for SparseRead. This distribution owns the Claude-specific
-bridge surface (JSONL bridge, MCP server, PreToolUse/PostToolUse hook, token
-tracker) and depends on the framework-neutral `sparseread-core` runtime.
-
-The core BenefitGate, episode controller, readers, and denoise layer are shared
-unchanged with the NanoBot/OpenCode/OpenClaw adapters; only the bridge surface
-is Claude-specific.
+Claude Code adapter for SparseRead: JSONL bridge, eight-tool MCP stdio server,
+per-event hooks and token tracker, backed by the framework-neutral
+`sparseread-core` runtime.
 
 ```bash
-python -m sparseread_claude.bridge --workspace .          # JSONL bridge
-python -m sparseread_claude.claude_mcp --workspace .      # MCP stdio server
-python -m sparseread_claude.hook --workspace .            # session hook
+python -m sparseread_claude.bridge --workspace .
+python -m sparseread_claude.claude_mcp --workspace . --mode auto
+python -m sparseread_claude.hook --single --workspace . --mode auto
 ```
 
-Install via `scripts/install_sparseread.py --platform claude`, which creates a
-managed Python runtime, writes `.mcp.json` and `.claude/settings.local.json`,
-and optionally creates `CLAUDE.md` guidance.
+Install via `scripts/install_sparseread.py --platform claude`; use
+`--sparseread-mode advisory` to avoid hook interception. See
+`integrations/claude/README.md` for path, permission, one-time state, shell and
+platform boundaries.

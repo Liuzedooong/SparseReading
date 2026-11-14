@@ -135,7 +135,7 @@ class ClaudeBridge(SparseReadBridgeServer):
     """Claude Code SparseRead bridge.
 
     Uses the shared core runtime and a Claude-specific gate classifier that
-    reflects Claude Code's hook capabilities (PreToolUse exit(2),
+    reflects Claude Code's hook capabilities (structured PreToolUse decisions,
     additionalContext injection, no direct grep/search blocking).
     """
 

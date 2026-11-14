@@ -1,12 +1,11 @@
 """Claude Code session hook for SparseRead.
 
-Runs as a long-lived process (session hook) speaking Claude Code's JSON-lines
-hook protocol.  All routing decisions come from the shared
+Handles Claude Code hook events; the installer runs one process per event.  All routing decisions come from the shared
 ``sparseread-core`` BenefitGate; this module only adds the Claude-specific
 execution surface:
 
 - PreToolUse Read/Bash: enforce -> deny + additionalContext,
-  advisory -> allow + recommendation, native -> allow.
+  advisory -> recommendation, native -> no permission decision.
 - PostToolUse: nudge after large native reads.
 - one-time-block: a path is hard-blocked once, then downgraded to advisory so
   the model can proceed after SRO context has been injected.
@@ -36,6 +35,7 @@ from sparseread.core.detector import FileInfo, inspect_file
 from sparseread.core.readers.collection import CollectionReader
 
 from sparseread_claude.bridge import CLAUDE_TEXT_ENFORCE_BYTES, classify_claude_gate
+from sparseread_claude.hook_state import claim_redirect
 
 
 if sys.platform == "win32":
@@ -77,9 +77,8 @@ def _make_gate_engine() -> BenefitGate:
 
 
 def _resolve_path(raw: str, workspace: str | None = None) -> Path | None:
-    if not raw or not raw.strip():
+    if not raw or raw != raw.strip():
         return None
-    raw = raw.strip().strip('"').strip("'")
     try:
         p = Path(raw)
         if not p.is_absolute() and workspace:
@@ -90,7 +89,8 @@ def _resolve_path(raw: str, workspace: str | None = None) -> Path | None:
 
 
 def _extract_read_path(tool_input: dict[str, Any]) -> str:
-    return str(tool_input.get("file_path", ""))
+    path = tool_input.get("file_path")
+    return path if isinstance(path, str) else ""
 
 
 def _extract_bash_paths(tool_input: dict[str, Any]) -> list[str]:
@@ -130,6 +130,19 @@ def _extract_bash_paths(tool_input: dict[str, Any]) -> list[str]:
     return []
 
 
+def _unbounded_cat_path(tool_input: dict[str, Any]) -> str:
+    command = tool_input.get("command")
+    if not isinstance(command, str) or any(c in command for c in "|;&<>`$()\n\r*?[]{}"):
+        return ""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return ""
+    if len(tokens) != 2 or tokens[0] != "cat" or tokens[1].startswith(("-", "~")):
+        return ""
+    return tokens[1]
+
+
 def _has_read_constraints(tool_input: dict[str, Any]) -> bool:
     return bool(
         tool_input.get("offset") or tool_input.get("limit") or tool_input.get("pages")
@@ -157,9 +170,13 @@ def _is_generated_or_runtime(path: Path) -> bool:
 class HookSession:
     """Per-session hook state: decision cache, one-time-block set, counters."""
 
-    def __init__(self, gate: BenefitGate, workspace: str | None = None) -> None:
+    def __init__(self, gate: BenefitGate, workspace: str | None = None, *, mode: str = "auto",
+                 session_id: str = "", persistent: bool = False) -> None:
         self.gate = gate
         self.workspace = workspace
+        self.mode = mode
+        self.session_id = session_id
+        self.persistent = persistent
         self._cache: dict[str, dict[str, Any]] = {}
         self._blocked: set[str] = set()
         self._block_count = 0
@@ -192,6 +209,8 @@ class HookSession:
             )
         if not resolved.exists():
             return self._native_result(path_key, "path does not exist", "missing", 0)
+        if not resolved.is_file():
+            return self._native_result(path_key, "not a regular file", "native", 0)
 
         try:
             info: FileInfo = inspect_file(resolved)
@@ -245,11 +264,13 @@ class HookSession:
         self._prune_cache()
         return result
 
-    def mark_blocked(self, path_str: str) -> None:
+    def mark_blocked(self, path_str: str) -> bool:
         resolved = _resolve_path(path_str, self.workspace)
-        if resolved:
+        if resolved and (not self.persistent or claim_redirect(self.workspace, self.session_id, resolved)):
             self._blocked.add(str(resolved))
             self._block_count += 1
+            return True
+        return False
 
     def mark_allowed(self) -> None:
         self._allow_count += 1
@@ -288,7 +309,7 @@ def _format_block(path: str, reason: str, info_type: str = "") -> dict[str, Any]
                 f"  - If you need specific evidence → "
                 f"sro_read(target={{'artifact_id': ...}}, mode='collect', hint={{...}})\n"
                 f"  - When sro_read returns 'ready' → write deliverable immediately\n"
-                f"Do NOT retry read_file on this path — use sro_preview."
+                f"You may retry the native read if needed; normal host permissions still apply."
             ),
         }
     }
@@ -298,7 +319,6 @@ def _format_advisory(path: str, reason: str) -> dict[str, Any]:
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
             "additionalContext": (
                 f"💡 SparseRead advisory: {reason}\n"
                 f"Consider using sro_preview(path={json.dumps(path)}) "
@@ -312,28 +332,17 @@ def _format_allow() -> dict[str, Any]:
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
         }
     }
 
 
 def _format_post_nudge(path: str, output_size: int, tool_output: dict[str, Any]) -> dict[str, Any]:
-    updated = dict(tool_output)
     nudge = (
-        f"\n\n---\n"
-        f"💡 **SparseRead tip**: This was a large native read "
-        f"({output_size:,} chars from {json.dumps(path)}).\n"
-        f"Next time, try `sro_preview(path={json.dumps(path)})` first "
-        f"for targeted evidence extraction."
+        f"💡 SparseRead tip: This was a large native read "
+        f"({output_size:,} chars from {json.dumps(path)}). "
+        f"Consider sro_preview(path={json.dumps(path)}) for targeted evidence."
     )
-    if "content" in updated and isinstance(updated["content"], str):
-        updated["content"] = updated["content"] + nudge
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "updatedToolOutput": updated,
-        }
-    }
+    return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": nudge}}
 
 
 def _format_post_passthrough() -> dict[str, Any]:
@@ -359,8 +368,9 @@ def handle_pretooluse(
             return _format_allow()
         decision = session.decide(path, tool_name="Read")
         if decision["decision"] == "enforce":
-            session.mark_blocked(path)
-            return _format_block(path, decision["reason"], decision.get("info_type", ""))
+            if session.mode == "auto" and session.mark_blocked(path):
+                return _format_block(path, decision["reason"], decision.get("info_type", ""))
+            return _format_advisory(path, decision["reason"])
         if decision["decision"] == "advisory":
             session.mark_nudged()
             return _format_advisory(path, decision["reason"])
@@ -368,15 +378,17 @@ def handle_pretooluse(
         return _format_allow()
 
     if tool_name == "Bash":
-        paths = _extract_bash_paths(tool_input)
+        path = _unbounded_cat_path(tool_input)
+        paths = [path] if path else []
         if not paths:
             session.mark_allowed()
             return _format_allow()
         for path in paths:
             decision = session.decide(path, tool_name="Bash")
             if decision["decision"] == "enforce":
-                session.mark_blocked(path)
-                return _format_block(path, decision["reason"], decision.get("info_type", ""))
+                if session.mode == "auto" and session.mark_blocked(path):
+                    return _format_block(path, decision["reason"], decision.get("info_type", ""))
+                return _format_advisory(path, decision["reason"])
         for path in paths:
             decision = session.decide(path, tool_name="Bash")
             if decision["decision"] == "advisory":
@@ -393,7 +405,7 @@ def handle_posttooluse(
     session: HookSession,
     tool_name: str,
     tool_input: dict[str, Any],
-    tool_output: dict[str, Any] | None,
+    tool_output: Any,
 ) -> dict[str, Any]:
     if tool_output is None:
         return _format_post_passthrough()
@@ -431,14 +443,13 @@ def _parse_event(raw: str) -> dict[str, Any] | None:
     return None
 
 
-def run_session(workspace: str | None = None) -> int:
+def run_session(workspace: str | None = None, mode: str = "auto") -> int:
     gate = _make_gate_engine()
-    session = HookSession(gate, workspace=workspace)
+    session = HookSession(gate, workspace=workspace, mode=mode)
     init_msg = json.dumps(
         {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
-                "permissionDecision": "allow",
             }
         },
         ensure_ascii=False,
@@ -462,7 +473,7 @@ def run_session(workspace: str | None = None) -> int:
             if hook_event_name == "PreToolUse":
                 resp = handle_pretooluse(session, tool_name, tool_input)
             elif hook_event_name == "PostToolUse":
-                tool_output = event.get("tool_output", event.get("toolOutput"))
+                tool_output = event.get("tool_response", event.get("tool_output", event.get("toolOutput")))
                 resp = handle_posttooluse(session, tool_name, tool_input, tool_output)
             elif hook_event_name in ("Stop", "Shutdown", "Notification"):
                 stats = session.stats
@@ -488,9 +499,8 @@ def run_session(workspace: str | None = None) -> int:
     return 0
 
 
-def run_single(workspace: str | None = None) -> int:
+def run_single(workspace: str | None = None, mode: str = "auto") -> int:
     gate = _make_gate_engine()
-    session = HookSession(gate, workspace=workspace)
     try:
         raw = sys.stdin.read()
         event = _parse_event(raw)
@@ -500,21 +510,25 @@ def run_single(workspace: str | None = None) -> int:
         print(json.dumps(_format_allow(), ensure_ascii=False))
         return 0
 
+    session_id = str(event.get("session_id") or event.get("sessionId") or "")
+    session = HookSession(gate, workspace=workspace, mode=mode, session_id=session_id, persistent=True)
     hook_event_name = str(event.get("hook_event_name", event.get("hookEventName", "")))
     tool_name = str(event.get("tool_name", event.get("toolName", "")))
     tool_input = event.get("tool_input", event.get("toolInput", {}))
     if not isinstance(tool_input, dict):
         tool_input = {}
-    if hook_event_name in ("PreToolUse", ""):
-        resp = handle_pretooluse(session, tool_name, tool_input)
-    elif hook_event_name == "PostToolUse":
-        tool_output = event.get("tool_output", event.get("toolOutput"))
-        resp = handle_posttooluse(session, tool_name, tool_input, tool_output)
-    else:
+    try:
+        if hook_event_name in ("PreToolUse", ""):
+            resp = handle_pretooluse(session, tool_name, tool_input)
+        elif hook_event_name == "PostToolUse":
+            tool_output = event.get("tool_response", event.get("tool_output", event.get("toolOutput")))
+            resp = handle_posttooluse(session, tool_name, tool_input, tool_output)
+        else:
+            resp = _format_allow()
+    except Exception:
         resp = _format_allow()
     print(json.dumps(resp, ensure_ascii=False))
-    permission = resp.get("hookSpecificOutput", {}).get("permissionDecision", "allow")
-    return 2 if permission == "deny" else 0
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -523,11 +537,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--session", action="store_true", default=True)
     parser.add_argument("--single", action="store_true", default=False)
     parser.add_argument("--post-tool-use", action="store_true", default=False)
+    parser.add_argument("--mode", choices=["auto", "advisory"], default="auto")
     args = parser.parse_args(argv)
     workspace = str(Path(args.workspace).resolve()) if args.workspace else None
     if args.single:
-        return run_single(workspace)
-    return run_session(workspace)
+        return run_single(workspace, args.mode)
+    return run_session(workspace, args.mode)
 
 
 if __name__ == "__main__":

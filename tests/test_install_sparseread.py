@@ -596,3 +596,87 @@ def test_opencode_retains_backups_if_rollback_fails(monkeypatch, tmp_path: Path)
         installer.install_opencode(args)
     backups = list(runtime.parent.glob(".sparseread-rollback-*/runtime/old"))
     assert len(backups) == 1 and backups[0].read_text() == "old runtime"
+
+
+def test_claude_mode_reinstall_replaces_only_own_hooks(tmp_path: Path) -> None:
+    installer = load_installer()
+    settings = tmp_path / ".claude" / "settings.local.json"
+    other = {"type": "command", "command": "other-hook"}
+    old = {"type": "command", "command": "/old/python", "args": ["-m", "sparseread_claude.hook", "--single"]}
+    installer.write_json(settings, {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [old, other]}], "PostToolUse": [{"matcher": "Read", "hooks": [old]}]}, "enabledMcpjsonServers": ["other"]})
+    installer.merge_claude_settings(settings, installer.claude_settings_config(tmp_path, Path("/python"), "auto"))
+    installer.merge_claude_settings(settings, installer.claude_settings_config(tmp_path, Path("/python"), "advisory"))
+    config = json.loads(settings.read_text())
+    for event in ("PreToolUse", "PostToolUse"):
+        hooks = [hook for entry in config["hooks"][event] for hook in entry["hooks"]]
+        ours = [hook for hook in hooks if "sparseread_claude.hook" in str(hook)]
+        assert len(ours) == 1 and ours[0]["args"][-2:] == ["--mode", "advisory"]
+    assert other in [hook for entry in config["hooks"]["PreToolUse"] for hook in entry["hooks"]]
+    assert config["enabledMcpjsonServers"] == ["other", "sparseread"]
+    assert installer.claude_mcp_config(tmp_path, Path("/python"), "advisory")["mcpServers"]["sparseread"]["args"][-2:] == ["--mode", "advisory"]
+
+
+def test_claude_install_modes_flow_to_mcp_and_hook(monkeypatch, tmp_path: Path) -> None:
+    installer = load_installer()
+    monkeypatch.setattr(installer, "install_python_runtime", lambda *a, **k: Path("/managed/python"))
+    monkeypatch.setattr(installer, "claude_runtime_dir", lambda: tmp_path / "runtime")
+    args = SimpleNamespace(claude_workspace=str(tmp_path), python=sys.executable, dry_run=False,
+                           reader_extras="none", mode=None, sparseread_mode="auto")
+    installer.install_claude(args)
+    args.sparseread_mode = "advisory"
+    installer.install_claude(args)
+    mcp = json.loads((tmp_path / ".mcp.json").read_text())
+    settings = json.loads((tmp_path / ".claude/settings.local.json").read_text())
+    assert mcp["mcpServers"]["sparseread"]["args"][-2:] == ["--mode", "advisory"]
+    for event in ("PreToolUse", "PostToolUse"):
+        assert len(settings["hooks"][event]) == 1
+        assert settings["hooks"][event][0]["hooks"][0]["args"][-2:] == ["--mode", "advisory"]
+
+
+def test_codex_doctor_reports_separate_trust_and_diagnostic(monkeypatch, tmp_path: Path, capsys) -> None:
+    installer = load_installer()
+    target = tmp_path / ".sparseread/codex/sparseread-codex"
+    target.mkdir(parents=True)
+    python = tmp_path / "python"
+    python.touch()
+    installer.write_json(target / ".sparseread-runtime.json", {"workspace": str(tmp_path.resolve()), "protocol": installer.BRIDGE_PROTOCOL_VERSION, "python": str(python)})
+    monkeypatch.setattr(installer, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "transport passed", ""))
+    installer.doctor_host(SimpleNamespace(workspace=str(tmp_path), platform="codex", dry_run=False, codex_cmd="/cli/codex"))
+    output = capsys.readouterr().out
+    assert "host activation has not been verified" in output
+    assert "check_codex_plugin.py" in output and "--codex /cli/codex" in output
+    assert "Hook trust" in output
+
+
+def test_claude_install_failure_rolls_back_runtime_settings_and_permissions(monkeypatch, tmp_path: Path) -> None:
+    import os
+    import pytest
+    installer = load_installer()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runtime = tmp_path / "runtime" / "claude"
+    runtime.mkdir(parents=True)
+    (runtime / "old-marker").write_text("original runtime")
+    mcp = workspace / ".mcp.json"
+    settings = workspace / ".claude/settings.local.json"
+    installer.write_json(mcp, {"mcpServers": {"other": {"command": "other"}}})
+    installer.write_json(settings, {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "other-hook"}]}]}})
+    mcp.chmod(0o640)
+    settings.chmod(0o600)
+    old_mcp, old_settings = mcp.read_bytes(), settings.read_bytes()
+    monkeypatch.setattr(installer, "claude_runtime_dir", lambda: runtime)
+    def install_fake(path, adapter, *, upgrade_backup, **kwargs):
+        path.rename(upgrade_backup)
+        path.mkdir()
+        (path / "new-marker").write_text("new runtime")
+        return path / "bin/python"
+    monkeypatch.setattr(installer, "install_python_runtime", install_fake)
+    monkeypatch.setattr(installer, "doctor", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("doctor failed")))
+    args = SimpleNamespace(claude_workspace=str(workspace), python=sys.executable, dry_run=False,
+                           reader_extras="none", mode=None, sparseread_mode="advisory", doctor=True)
+    with pytest.raises(RuntimeError, match="doctor failed"):
+        installer.install_claude(args)
+    assert (runtime / "old-marker").read_text() == "original runtime" and not (runtime / "new-marker").exists()
+    assert mcp.read_bytes() == old_mcp and settings.read_bytes() == old_settings
+    assert os.stat(mcp).st_mode & 0o777 == 0o640 and os.stat(settings).st_mode & 0o777 == 0o600
+    assert not (workspace / "CLAUDE.md").exists()
