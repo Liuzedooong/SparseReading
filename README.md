@@ -81,9 +81,9 @@ an npm plugin. The local Claude Code validation report is available at
 [`benchmarks/qwenclawbench/claude_final_aggregate_20260805.md`](https://github.com/Liuzedooong/SparseReading/blob/v0.1.3/benchmarks/qwenclawbench/claude_final_aggregate_20260805.md);
 it is not part of the three-framework table in the paper.
 
-### Current source candidate validation
+### v0.1.4 host validation
 
-The local candidate has host-level deterministic checks on macOS arm64 for
+The v0.1.4 integration has host-level deterministic checks on macOS arm64 for
 OpenCode 2.3.0 (and V1 1.17.14/1.19.5), Claude Code 2.1.325, Codex CLI
 0.169.0, and the official NanoBot 0.4.1 AgentLoop. Limited DeepSeek workflows
 activated each path; Claude and Codex used test-only wire adapters, while
@@ -100,7 +100,7 @@ established by those checks. See the [validation matrix](docs/framework_upgrade_
 
 The source installer builds a managed runtime for the selected framework, so
 the installed integration does not import from this checkout at runtime. The
-current upgrade is a local candidate and has not been published as a release.
+v0.1.4 source installer is provided as a release archive.
 
 Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), a current patched Node.js 22 or newer
 for OpenCode/OpenClaw/Codex/Pi, and the target agent CLI.
@@ -111,27 +111,23 @@ pass `--python /path/to/python3.12`; PDF/XLSX readers are installed by default,
 and `--reader-extras none` is available for text-only installations.
 
 ```bash
-git clone https://github.com/Liuzedooong/SparseReading.git
-cd SparseReading
-
-# In a full git checkout (tests are not included in the source installer archive):
-PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integrations/opencode/python/src:integrations/openclaw/python/src:integrations/claude/python/src" \
-  uv run --project . --extra test pytest tests/test_release_fixtures.py -q
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS &&
+grep '  sparseread-source-installer-v0.1.4.zip$' SHA256SUMS | shasum -a 256 -c - &&
+unzip -q sparseread-source-installer-v0.1.4.zip &&
+cd sparseread-v0.1.4
 ```
+
+The checksum command shown is for macOS. The archive omits tests and benchmarks.
 
 Choose one integration:
 
 Codex and Pi use the same core with project-scoped frontend adapters:
 
-Codex and Pi are included in the historical v0.1.3 tag. For the candidate
-changes described above, use a checkout containing those changes; the
-[v0.1.3 tagged source archive](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip)
-does not contain this upgrade. Original release attachments were not migrated.
-
 ```bash
-uv run --python 3.12 python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform codex --workspace /absolute/path/to/project --doctor
-uv run --python 3.12 python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform pi --workspace /absolute/path/to/project --doctor
 ```
 
@@ -144,18 +140,18 @@ See [design, setup, recovery, and limitations](docs/codex-pi-adapters.md).
 
 ```bash
 # OpenCode: install into an existing workspace
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform opencode \
   --opencode-workspace /path/to/your/project \
   --doctor
 
 # OpenClaw: install into the current OpenClaw profile
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform openclaw \
   --doctor
 
 # Claude Code: install MCP and per-event hooks into a workspace
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform claude \
   --claude-workspace /path/to/your/project \
   --doctor
@@ -185,7 +181,7 @@ opencode run "Use SparseRead to inspect tests/fixtures/quick_test/incident-repor
 ```
 
 Other adapters can expose the same request; see the validation matrix for
-what has been exercised on the current candidate.
+what has been exercised in v0.1.4.
 
 ## How it works
 
@@ -257,10 +253,9 @@ integration.
 
 ## Release scope and limitations
 
-- `v0.1.3` is a historical source tag; this candidate is not yet a new release.
-- PyPI, npm, and official framework-marketplace publishing are not wired yet;
-  the source installer is the supported distribution path today.
-- The Claude candidate uses MCP and per-event hooks; its Windows and PowerShell
+- `v0.1.4` is distributed as a source installer archive; `v0.1.3` is a historical tag.
+- PyPI project registration is pending; npm and official framework-marketplace publishing are not currently distribution paths.
+- Claude Code uses MCP and per-event hooks; its Windows and PowerShell
   paths have not been independently qualified in this batch.
 - SparseRead is selective by design. Native access remains the right choice for
   small files, exact full-table computation, and other low-sparsity tasks.

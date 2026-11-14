@@ -1,14 +1,12 @@
-# Framework validation matrix — working candidate, 2026-11-14
+# Framework validation matrix — v0.1.4, 2026-11-14
 
-This matrix tracks the **local source candidate**, not a published version.
+This matrix records qualification of the **v0.1.4 source**.
 The fixed integration commit `05768c8c4a583f5209ba32da56660fa7bc0d29b1`
 completed the checks below; the eventual delivery commit adds documentation and
 archive-list changes. `BUILD_COMMIT.txt` and `SHA256SUMS` identify the exact
 delivered artifacts. The historical `v0.1.3` tag predates these changes;
 development artifacts that
-still carry `0.1.3` must not be confused with that tag. No new tag, GitHub
-release, registry package or hosted website update has been published in this
-batch. Prior paper measurements describe their original implementations and
+still carry `0.1.3` must not be confused with that tag. Prior paper measurements describe their original implementations and
 workloads, not the upgraded adapters below.
 
 All host results here are limited to the tested **macOS arm64** environment and

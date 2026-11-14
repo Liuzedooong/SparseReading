@@ -1,6 +1,6 @@
 # SparseRead 安装指南
 
-这份文档描述当前 single-repo 分支的默认源码安装形态。SparseRead 现在是
+这份文档描述 v0.1.4 源码安装形态。SparseRead 现在是
 多个框架共享一个 core（`packages/sparseread-core`），桥接面不同：
 
 - NanoBot：作为普通 Python 依赖安装（`sparseread-core` + `sparseread-nanobot`），
@@ -11,11 +11,11 @@
   安装（Claude Code 没有 npm 插件系统，`.mcp.json` 和
   `.claude/settings.local.json` 就是它的“插件形态”）。
 
-这还不是 PyPI/npm/官方插件市场的一键发行版。当前目标是让开源用户能从源码
+PyPI 项目注册待完成；npm/官方插件市场目前不是发行入口。用户可以从源码
 稳定安装、验证、使用，并通过共享 core 保持协议一致。Codex/Pi 入口见
 [单独指南](codex-pi-adapters.md)。
 
-当前候选的已核验范围以 [验证矩阵](framework_upgrade_20261114/validation-summary.md)
+v0.1.4 的已核验范围以 [验证矩阵](framework_upgrade_20261114/validation-summary.md)
 为准，主要是 macOS arm64 指定版本。Linux、Windows、Desktop 和远程环境不能因
 安装脚本存在就视为已通过；[Windows 历史记录](https://github.com/Liuzedooong/SparseReading/blob/main/docs/windows_fresh_install_test_report.md)
 只描述当时的旧候选，不代表本轮适配验证。源码安装归档不包含 tests 或 benchmark。
@@ -51,7 +51,6 @@ sro_raw(raw_ref) -> 明确需要原文时的回溯入口
 - `uv`
 - 已安装安全更新的 Node.js 22 或更高版本
 - `npm`
-- Git
 - 已安装的 OpenCode CLI、OpenClaw CLI 或 Claude Code CLI（按目标框架选择）
 
 Windows 上如果 `npm`、`openclaw` 等入口实际是 `.cmd/.exe/.bat`，安装脚本会自动解析到对应入口，不需要手动修改命令名。
@@ -88,11 +87,14 @@ Claude Code 2.1.325、Codex CLI 0.169.0 与官方 NanoBot 0.4.1 的指定宿主�
 
 ## Fresh Machine 安装
 
-从源码开始：
+下载源码安装归档（以下校验命令适用于 macOS）：
 
 ```bash
-git clone https://github.com/Liuzedooong/SparseReading.git
-cd SparseReading
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS &&
+grep '  sparseread-source-installer-v0.1.4.zip$' SHA256SUMS | shasum -a 256 -c - &&
+unzip -q sparseread-source-installer-v0.1.4.zip &&
+cd sparseread-v0.1.4
 ```
 
 以下测试需要完整 git checkout；源码安装归档不包含 tests。先跑 release fixture：
@@ -121,7 +123,7 @@ $env:PYTHONPATH="packages/sparseread-core/src;integrations\nanobot\python\src;in
 假设你已经能在目标 workspace 里运行 `opencode`。
 
 ```bash
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform opencode \
   --opencode-workspace /path/to/your/project \
   --doctor
@@ -146,7 +148,7 @@ opencode run "Use SparseRead to inspect the large report and answer the question
 Windows PowerShell：
 
 ```powershell
-uv run --project . python scripts/install_sparseread.py --platform opencode --opencode-workspace D:\path\to\your\project --doctor
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform opencode --opencode-workspace D:\path\to\your\project --doctor
 Set-Location D:\path\to\your\project
 opencode run "请自动使用 SparseRead 阅读长报告并回答问题"
 ```
@@ -154,7 +156,7 @@ opencode run "请自动使用 SparseRead 阅读长报告并回答问题"
 如果 `opencode` 不在 PATH，显式指定可执行文件路径：
 
 ```bash
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform opencode \
   --opencode-cmd /absolute/path/to/opencode \
   --opencode-workspace /path/to/your/project \
@@ -174,7 +176,7 @@ sro_preview, sro_raw, sro_card, sro_read, sro_trace
 假设你已经能运行 `openclaw`。
 
 ```bash
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform openclaw \
   --doctor
 ```
@@ -201,7 +203,7 @@ sro_preview, sro_raw, sro_card, sro_read, sro_decide, sro_trace
 如果使用命名 profile：
 
 ```bash
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform openclaw \
   --openclaw-profile work \
   --doctor
@@ -216,7 +218,7 @@ OpenClaw 的 provider/model/key 仍由 OpenClaw 自己配置。SparseRead 不安
 Windows PowerShell：
 
 ```powershell
-uv run --project . python scripts/install_sparseread.py --platform openclaw --doctor
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform openclaw --doctor
 ```
 
 ## 安装到 NanoBot
@@ -235,7 +237,7 @@ NanoBot 使用 `sparseread-core` 与 `sparseread-nanobot` Python 包；候选的
 假设你已经能运行 `claude`：
 
 ```bash
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform claude \
   --claude-workspace /path/to/your/project \
   --doctor
@@ -244,7 +246,7 @@ uv run --project . python scripts/install_sparseread.py \
 Windows PowerShell：
 
 ```powershell
-uv run --project . python scripts/install_sparseread.py --platform claude --claude-workspace D:\path\to\project --doctor
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform claude --claude-workspace D:\path\to\project --doctor
 ```
 
 安装脚本会：
@@ -278,7 +280,7 @@ Windows 注意：同事在 Windows 11 上曾遇到 MCP stdio/SSE 连接问题；
 如果两个 CLI 都已经安装：
 
 ```bash
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform both \
   --opencode-workspace /path/to/your/project \
   --doctor
@@ -287,7 +289,7 @@ uv run --project . python scripts/install_sparseread.py \
 如需关闭拦截、只让模型自然选择 SparseRead：
 
 ```bash
-uv run --project . python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform both \
   --opencode-workspace /path/to/your/project \
   --sparseread-mode advisory \
@@ -309,17 +311,17 @@ advisory 不拦截原生读取，OpenCode V2 对集合逐源检查宿主权限�
 只检查本机命令和 bridge，不改框架配置：
 
 ```bash
-uv run --project . python scripts/install_sparseread.py --platform opencode --doctor-only
-uv run --project . python scripts/install_sparseread.py --platform openclaw --doctor-only
-uv run --project . python scripts/install_sparseread.py --platform claude --doctor-only
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform opencode --doctor-only
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform openclaw --doctor-only
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform claude --doctor-only
 ```
 
 Windows PowerShell：
 
 ```powershell
-uv run --project . python scripts/install_sparseread.py --platform opencode --doctor-only
-uv run --project . python scripts/install_sparseread.py --platform openclaw --doctor-only
-uv run --project . python scripts/install_sparseread.py --platform claude --doctor-only
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform opencode --doctor-only
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform openclaw --doctor-only
+uv run --no-project --python 3.12 python scripts/install_sparseread.py --platform claude --doctor-only
 ```
 
 doctor 检查范围因框架不同；其结果不能自动证明真实模型激活或宿主权限已批准：

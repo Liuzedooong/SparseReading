@@ -13,19 +13,16 @@ const INSTALLS: Install[] = [
   {
     id: "nanobot",
     label: "NanoBot",
-    hint: "Python adapter into the nanobot venv you already have. No installer script.",
+    hint: "Run in your NanoBot Python environment, then call sparseread_nanobot.install(agent) before AgentLoop starts.",
     code: `uv pip install \\
   packages/sparseread-core \\
-  integrations/nanobot/python
-
-from sparseread_nanobot import install
-runtime = install(agent)`,
+  integrations/nanobot/python`,
   },
   {
     id: "opencode",
     label: "OpenCode",
     hint: "Writes the workspace plugin, a managed Python runtime, and runs doctor.",
-    code: `uv run --project . python scripts/install_sparseread.py \\
+    code: `uv run --no-project --python 3.12 python scripts/install_sparseread.py \\
   --platform opencode \\
   --opencode-workspace /path/to/your/project \\
   --doctor`,
@@ -34,7 +31,7 @@ runtime = install(agent)`,
     id: "openclaw",
     label: "OpenClaw",
     hint: "Builds the OpenClaw plugin, installs it into the current profile, and runs doctor.",
-    code: `uv run --project . python scripts/install_sparseread.py \\
+    code: `uv run --no-project --python 3.12 python scripts/install_sparseread.py \\
   --platform openclaw \\
   --doctor`,
   },
@@ -42,10 +39,24 @@ runtime = install(agent)`,
     id: "claude",
     label: "Claude Code",
     hint: "Merges MCP tools and per-event hooks into the workspace. Restart Claude Code after install.",
-    code: `uv run --project . python scripts/install_sparseread.py \\
+    code: `uv run --no-project --python 3.12 python scripts/install_sparseread.py \\
   --platform claude \\
   --claude-workspace /path/to/your/project \\
   --doctor`,
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    hint: "Installs into the project; review project and hook trust separately.",
+    code: `uv run --no-project --python 3.12 python scripts/install_sparseread.py \\
+  --platform codex --workspace /path/to/your/project --doctor`,
+  },
+  {
+    id: "pi",
+    label: "Pi",
+    hint: "Installs a project extension; review the host trust prompt.",
+    code: `uv run --no-project --python 3.12 python scripts/install_sparseread.py \\
+  --platform pi --workspace /path/to/your/project --doctor`,
   },
 ];
 

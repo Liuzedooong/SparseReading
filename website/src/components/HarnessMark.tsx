@@ -11,6 +11,8 @@ const MARKS = {
     label: "OpenClaw",
     color: "#ff9f6b",
   },
+  codex: { label: "Codex", color: "#a8c8ae" },
+  pi: { label: "Pi", color: "#d3b8ff" },
   claude: {
     label: "Claude Code",
     color: "#e8a07c",
@@ -72,6 +74,12 @@ export function HarnessMark({
             fill="#0f1724"
           />
           <circle cx="13.2" cy="13.4" r="1.1" fill={mark.color} />
+        </>
+      )}
+      {(id === "codex" || id === "pi") && (
+        <>
+          <rect x="3" y="3" width="26" height="26" rx="7" fill={mark.color} />
+          <text x="16" y="22" textAnchor="middle" fontSize="16" fontWeight="bold" fill="#0f1724">{id === "pi" ? "π" : "C"}</text>
         </>
       )}
       {id === "claude" && (
