@@ -51,6 +51,7 @@ SOURCE_PATHS = (
     "docs/codex-pi-adapters.md",
     "integrations/README.md",
     "scripts/install_sparseread.py",
+    "scripts/check_codex_plugin.py",
     *(f"{package}/{name}" for package in PYTHON_PACKAGES for name in ("README.md", "pyproject.toml", "src")),
     "integrations/claude/CLAUDE.md",
     "integrations/codex/plugin/sparseread-codex/.codex-plugin/plugin.json",

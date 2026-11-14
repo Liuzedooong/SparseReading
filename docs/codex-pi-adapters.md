@@ -41,7 +41,10 @@ dependencies，避免打包第二份 agent/runtime。安装器使用官方 `pi i
 前提：Python 3.11+、uv、Node.js，以及对应 CLI。PDF/XLSX reader 默认安装；
 纯文本可加 `--reader-extras none`。只需下载一次仓库，然后任选一端：
 
-本次宿主验证版本：Codex CLI `0.158.0-alpha.2`，Pi `0.87.1`。旧 Codex 必须
+历史宿主验证版本：Codex CLI `0.158.0-alpha.2`，Pi `0.87.1`。本轮固定
+Codex CLI `0.169.0` 的实验性 app-server schema，并在隔离项目验证六个 MCP
+工具；hook 信任和真实模型激活需单独检查。CLI 结果不代表 Desktop、Cloud
+或 Web 已通过。旧 Codex 必须
 具备插件/hook 接口；旧 Pi SDK 不应假设支持当前 `typebox` 和扩展 API。未验证
 旧版本兼容性，建议先更新到具备这些接口的版本。
 

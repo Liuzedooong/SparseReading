@@ -26,3 +26,10 @@ The source `.mcp.json` uses `${CLAUDE_PLUGIN_ROOT}` as a source-package placehol
 The installer registers the copied plugin through the workspace's `.agents/plugins/marketplace.json` and enables it in `.codex/config.toml`. The hook receives `PLUGIN_ROOT` and `PLUGIN_DATA` from Codex. Review and trust the bundled hook definitions in `/hooks` before expecting interception; the plugin never bypasses Codex hook trust.
 
 The hook only denies a direct unbounded `cat` when the installed mode is `auto` and the Codex host gate requests enforcement. It gives a `sro_preview` path, records a single redirect per session and path under `PLUGIN_DATA`, then lets a retry follow Codex's normal permission flow. The lock and atomic state update make concurrent hook invocations share that one redirect safely.
+
+`SessionStart` covers startup, resume, clear, compact, and fork. A missing
+session ID, a failed bridge, or the three-second hook-process timeout leaves the
+native command available; failures emit a short stderr diagnostic. Installation,
+project trust, MCP discovery, and approval of the current hook hash are separate
+steps. An updated bundled script must be reviewed again. These statements apply
+to the local CLI path; Desktop, Cloud and Web need separate validation.

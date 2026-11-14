@@ -111,6 +111,7 @@ def test_source_installer_archives_include_production_source_and_checksums(tmp_p
         "sparseread-v0.1.2/docs/installation.md",
         "sparseread-v0.1.2/docs/codex-pi-adapters.md",
         "sparseread-v0.1.2/scripts/install_sparseread.py",
+        "sparseread-v0.1.2/scripts/check_codex_plugin.py",
         "sparseread-v0.1.2/pyproject.toml",
         "sparseread-v0.1.2/packages/sparseread-core/src/release_fixture.py",
         "sparseread-v0.1.2/integrations/agent-tools/python/src/release_fixture.py",

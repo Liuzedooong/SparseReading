@@ -327,4 +327,54 @@ def test_launcher_hook_timeout_fails_open(tmp_path: Path) -> None:
     elapsed = time.monotonic() - start
     assert result.returncode == 0
     assert result.stdout == "{}\n"
+    assert "hook fallback: timeout" in result.stderr
     assert elapsed < 6
+
+
+def test_session_start_matcher_includes_fork() -> None:
+    import re
+    hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    matcher = hooks["hooks"]["SessionStart"][0]["matcher"]
+    assert all(re.fullmatch(matcher, source) for source in ("startup", "resume", "clear", "compact", "fork"))
+
+
+def test_missing_session_id_fails_open_without_bridge_or_state(tmp_path: Path) -> None:
+    event = _event("cat report.md", tmp_path)
+    del event["session_id"]
+    calls: list[dict[str, Any]] = []
+    result = handle_event(event, workspace=tmp_path, plugin_data=tmp_path / "state", bridge_factory=_factory(_force_result(), calls=calls))
+    assert result is None
+    assert calls == []
+    assert not (tmp_path / "state").exists()
+
+
+def test_concurrent_processes_claim_only_one_redirect(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    target = tmp_path / "large.txt"
+    script = "from pathlib import Path; from sparseread_agent_tools.codex_hook import _redirect_once; import sys; print(int(_redirect_once(sys.argv[1], 'shared-session', Path(sys.argv[2]))))"
+    env = dict(os.environ)
+    source = str(Path(__file__).resolve().parents[1] / "integrations" / "agent-tools" / "python" / "src")
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, (source, env.get("PYTHONPATH", ""))))
+    processes = [subprocess.Popen([sys.executable, "-c", script, str(data), str(target)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env) for _ in range(3)]
+    results = [proc.communicate(timeout=10) for proc in processes]
+    assert all(proc.returncode == 0 for proc in processes), results
+    assert sorted(stdout.strip() for stdout, _ in results) == ["0", "0", "1"]
+
+
+def test_launcher_reports_python_fallback_without_leaking_stderr(tmp_path: Path) -> None:
+    plugin_root, launcher = _copy_launcher(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _runtime_config(plugin_root, workspace)
+    fake_package = tmp_path / "fake" / "sparseread_agent_tools"
+    fake_package.mkdir(parents=True)
+    (fake_package / "__init__.py").write_text("")
+    (fake_package / "codex_hook.py").write_text(
+        "import sys\nprint('[sparseread] hook fallback: bridge or state unavailable', file=sys.stderr)\nprint('SECRET_DO_NOT_COPY', file=sys.stderr)\n"
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(fake_package.parent)
+    result = subprocess.run(["node", str(launcher), "--hook"], input="{}", capture_output=True, text=True, env=env, timeout=8)
+    assert result.returncode == 0
+    assert "hook fallback: bridge or state unavailable" in result.stderr
+    assert "SECRET_DO_NOT_COPY" not in result.stderr
