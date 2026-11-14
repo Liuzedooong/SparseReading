@@ -182,6 +182,7 @@ def test_install_opencode_writes_persistent_workspace_config(monkeypatch, tmp_pa
     workspace = tmp_path / "workspace"
 
     monkeypatch.setattr(installer, "command_spec", lambda *_args, **_kwargs: installer.CommandSpec("/bin/true"))
+    monkeypatch.setattr(installer, "opencode_major", lambda *_args: 1)
     monkeypatch.setattr(installer, "npm_install_and_build", lambda *_args, **_kwargs: None)
     managed_python = tmp_path / "managed" / "bin" / "python"
     monkeypatch.setattr(installer, "install_python_runtime", lambda *_args, **_kwargs: managed_python)
@@ -424,3 +425,174 @@ def test_validate_openclaw_runtime_rejects_duplicate_sparse_read_plugins() -> No
         assert "duplicate SparseRead plugins" in str(exc)
     else:
         raise AssertionError("expected duplicate plugin diagnostic to fail doctor")
+
+
+def test_opencode_detects_exact_supported_major(monkeypatch) -> None:
+    installer = load_installer()
+    monkeypatch.setattr(installer, "command_spec", lambda *_a, **_k: installer.CommandSpec("opencode"))
+    monkeypatch.setattr(installer, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "2.3.0\n", ""))
+    assert installer.opencode_major("opencode") == 2
+    monkeypatch.setattr(installer, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "3.0.0\n", ""))
+    import pytest
+    with pytest.raises(SystemExit, match="supported OpenCode major"):
+        installer.opencode_major("opencode")
+
+
+def test_opencode_v2_install_is_idempotent_and_preserves_other_plugins(monkeypatch, tmp_path: Path) -> None:
+    installer = load_installer()
+    source = tmp_path / "build"
+    (source / "dist" / ".sparseread-transport").mkdir(parents=True)
+    (source / "dist" / "v2.js").write_text("// v2", encoding="utf-8")
+    (source / "dist" / ".sparseread-transport" / "transport.js").write_text("// transport", encoding="utf-8")
+    sdk = source / "node_modules" / "@opencode" / "plugin"
+    sdk.mkdir(parents=True)
+    (sdk / "package.json").write_text('{}', encoding="utf-8")
+    (source / "package.json").write_text('{"version":"0.1.3"}', encoding="utf-8")
+    monkeypatch.setattr(installer, "OPENCODE_PLUGIN", source)
+    plugins = tmp_path / "workspace" / ".opencode" / "plugins"
+    plugins.mkdir(parents=True)
+    (plugins / "other.js").write_text("keep", encoding="utf-8")
+    legacy = plugins / "sparseread.js"
+    legacy.write_text("// SparseReadOpenCodePlugin", encoding="utf-8")
+    installer.install_opencode_v2(legacy, dry_run=False)
+    installer.install_opencode_v2(legacy, dry_run=False)
+    assert not legacy.exists()
+    assert (plugins / "other.js").read_text() == "keep"
+    assert json.loads((plugins / "sparseread" / "package.json").read_text())["version"] == "0.1.3"
+    assert (plugins / "sparseread" / ".sparseread-transport" / "transport.js").exists()
+
+
+def test_opencode_v2_refuses_unmanaged_legacy(monkeypatch, tmp_path: Path) -> None:
+    installer = load_installer()
+    legacy = tmp_path / "plugins" / "sparseread.js"
+    legacy.parent.mkdir()
+    legacy.write_text("// unrelated user plugin", encoding="utf-8")
+    import pytest
+    with pytest.raises(SystemExit, match="unmanaged plugin"):
+        installer.install_opencode_v2(legacy, dry_run=False)
+    assert legacy.read_text() == "// unrelated user plugin"
+
+
+def test_opencode_install_failure_restores_config(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    workspace = tmp_path / "workspace"
+    config = workspace / ".opencode" / "sparseread.json"
+    config.parent.mkdir(parents=True)
+    old = '{"policy": "observe", "custom": "keep"}\n'
+    config.write_text(old, encoding="utf-8")
+    monkeypatch.setattr(installer, "opencode_major", lambda *_args: 2)
+    monkeypatch.setattr(installer, "install_python_runtime", lambda *_args, **_kwargs: tmp_path / "python")
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("simulated install failure")
+    monkeypatch.setattr(installer, "install_opencode_v2", fail)
+    args = SimpleNamespace(opencode_workspace=str(workspace), opencode_cmd="opencode", sparseread_mode="auto", skip_build=True, dry_run=False)
+    with pytest.raises(RuntimeError, match="simulated"):
+        installer.install_opencode(args)
+    assert config.read_text(encoding="utf-8") == old
+
+
+def test_opencode_rejects_dangling_symlink_before_runtime(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    try:
+        (workspace / ".opencode").symlink_to(tmp_path / "missing", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable")
+    monkeypatch.setattr(installer, "opencode_major", lambda *_args: 2)
+    monkeypatch.setattr(installer, "install_python_runtime", lambda *_args, **_kwargs: pytest.fail("runtime must not start"))
+    args = SimpleNamespace(opencode_workspace=str(workspace), opencode_cmd="opencode", sparseread_mode="auto", skip_build=True, dry_run=False)
+    with pytest.raises(SystemExit, match="symlink"):
+        installer.install_opencode(args)
+
+
+def test_opencode_doctor_failure_restores_runtime_and_entry(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    workspace = tmp_path / "workspace"
+    runtime = installer.opencode_runtime_dir(workspace)
+    runtime.mkdir(parents=True)
+    (runtime / "old").write_text("original runtime")
+    plugin = workspace / ".opencode" / "plugins" / "sparseread"
+    plugin.mkdir(parents=True)
+    (plugin / "package.json").write_text('{"name":"sparseread-opencode-v2"}')
+    (plugin / "old").write_text("original plugin")
+    config = workspace / ".opencode" / "sparseread.json"
+    config.write_text('{"custom":"original"}\n')
+    monkeypatch.setattr(installer, "opencode_major", lambda *_args: 2)
+    def runtime_install(target, *_args, upgrade_backup, **_kwargs):
+        target.rename(upgrade_backup)
+        target.mkdir()
+        (target / "new").write_text("new runtime")
+        return target / "bin" / "python"
+    def plugin_install(_legacy, **_kwargs):
+        (plugin / "old").unlink()
+        (plugin / "new").write_text("new plugin")
+    def fail_doctor(_args):
+        raise RuntimeError("doctor failed")
+    monkeypatch.setattr(installer, "install_python_runtime", runtime_install)
+    monkeypatch.setattr(installer, "install_opencode_v2", plugin_install)
+    monkeypatch.setattr(installer, "doctor_opencode", fail_doctor)
+    args = SimpleNamespace(opencode_workspace=str(workspace), opencode_cmd="opencode", sparseread_mode="auto", skip_build=True, dry_run=False, doctor=True)
+    with pytest.raises(RuntimeError, match="doctor failed"):
+        installer.install_opencode(args)
+    assert (runtime / "old").read_text() == "original runtime"
+    assert (plugin / "old").read_text() == "original plugin"
+    assert not (plugin / "new").exists()
+    assert config.read_text() == '{"custom":"original"}\n'
+
+
+def test_opencode_transport_replacement_does_not_write_through_hardlink(monkeypatch, tmp_path: Path) -> None:
+    installer = load_installer()
+    source = tmp_path / "source" / "dist"
+    (source / ".sparseread-transport").mkdir(parents=True)
+    (source / "sparseread.js").write_text("SparseReadOpenCodePlugin")
+    (source / ".sparseread-transport" / "transport.js").write_text("SparseReadBridge new")
+    monkeypatch.setattr(installer, "OPENCODE_PLUGIN", source.parent)
+    plugins = tmp_path / "plugins"
+    transport = plugins / ".sparseread-transport" / "transport.js"
+    transport.parent.mkdir(parents=True)
+    transport.write_text("SparseReadBridge old")
+    linked = tmp_path / "other"
+    import os
+    try:
+        os.link(transport, linked)
+    except OSError:
+        import pytest
+        pytest.skip("hardlink creation is unavailable")
+    installer.install_opencode_plugin_file(plugins / "sparseread.js", dry_run=False)
+    assert linked.read_text() == "SparseReadBridge old"
+    assert transport.read_text() == "SparseReadBridge new"
+
+
+def test_opencode_retains_backups_if_rollback_fails(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    workspace = tmp_path / "workspace"
+    runtime = installer.opencode_runtime_dir(workspace)
+    runtime.mkdir(parents=True)
+    (runtime / "old").write_text("old runtime")
+    config = workspace / ".opencode" / "sparseread.json"
+    config.parent.mkdir(parents=True)
+    config.write_text('{"custom":"original"}\n')
+    monkeypatch.setattr(installer, "opencode_major", lambda *_args: 2)
+    def runtime_install(target, *_args, upgrade_backup, **_kwargs):
+        target.rename(upgrade_backup)
+        target.mkdir()
+        return target / "bin" / "python"
+    monkeypatch.setattr(installer, "install_python_runtime", runtime_install)
+    monkeypatch.setattr(installer, "install_opencode_v2", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(installer, "doctor_opencode", lambda *_args: (_ for _ in ()).throw(RuntimeError("doctor failed")))
+    original_replace = Path.replace
+    def fail_restore(self, target):
+        if self.name == "config" and self.parent.name.startswith(".sparseread-rollback-"):
+            raise OSError("simulated restore failure")
+        return original_replace(self, target)
+    monkeypatch.setattr(Path, "replace", fail_restore)
+    args = SimpleNamespace(opencode_workspace=str(workspace), opencode_cmd="opencode", sparseread_mode="auto", skip_build=True, dry_run=False, doctor=True)
+    with pytest.raises(RuntimeError, match="backups retained"):
+        installer.install_opencode(args)
+    backups = list(runtime.parent.glob(".sparseread-rollback-*/runtime/old"))
+    assert len(backups) == 1 and backups[0].read_text() == "old runtime"

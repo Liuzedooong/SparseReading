@@ -5,10 +5,16 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "declaration": true,
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["sparseread.ts"]
+  "include": [
+    "sparseread.ts",
+    "v2.ts",
+    ".sparseread-transport/**/*.ts"
+  ]
 }

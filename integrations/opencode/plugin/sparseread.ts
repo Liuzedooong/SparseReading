@@ -1,23 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { SparseReadBridge } from "./.sparseread-transport/transport.js"
 import path from "node:path"
 import { tool, type Plugin, type ToolResult } from "@opencode-ai/plugin"
 
 type Json = any
-const BRIDGE_PROTOCOL_VERSION = "1.0"
-
-type BridgeRequest = {
-  id: string
-  method: string
-  params?: Record<string, Json>
-}
-
-type BridgeResponse = {
-  id: string
-  ok: boolean
-  result?: Json
-  error?: string
-}
 
 type NativeEvent = {
   time: number
@@ -36,96 +22,6 @@ type SparseReadPluginOptions = {
   projectRoot?: string
   bridgeModule?: string
   mode?: "auto" | "bench_protocol" | "force" | "force_sro" | "native" | "advisory"
-}
-
-class SparseReadBridge {
-  private process?: ChildProcessWithoutNullStreams
-  private nextID = 1
-  private buffer = ""
-  private pending = new Map<string, { resolve: (value: Json) => void; reject: (error: Error) => void }>()
-  private protocolCheck?: Promise<void>
-
-  constructor(
-    private readonly command: string,
-    private readonly args: string[],
-    private readonly cwd: string,
-  ) {}
-
-  request(method: string, params: Record<string, Json> = {}): Promise<Json> {
-    this.ensure()
-    if (method === "version") return this.requestRaw(method, params)
-    this.protocolCheck ??= this.requestRaw("version", {}).then((result) => {
-      if (result?.protocol_version !== BRIDGE_PROTOCOL_VERSION) {
-        throw new Error(`SparseRead bridge protocol mismatch: expected ${BRIDGE_PROTOCOL_VERSION}, got ${result?.protocol_version ?? "missing"}`)
-      }
-    })
-    return this.protocolCheck.then(() => this.requestRaw(method, params))
-  }
-
-  private requestRaw(method: string, params: Record<string, Json>): Promise<Json> {
-    const id = String(this.nextID++)
-    const payload: BridgeRequest = { id, method, params }
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
-      this.process!.stdin.write(JSON.stringify(payload) + "\n")
-    })
-  }
-
-  shutdown() {
-    if (!this.process) return
-    try {
-      this.process.stdin.write(JSON.stringify({ id: String(this.nextID++), method: "shutdown", params: {} }) + "\n")
-    } catch {
-      // ignore shutdown races
-    }
-    this.process.kill()
-    this.process = undefined
-    this.protocolCheck = undefined
-  }
-
-  private ensure() {
-    if (this.process) return
-    this.process = spawn(this.command, this.args, {
-      cwd: this.cwd,
-      env: { ...process.env },
-      stdio: ["pipe", "pipe", "pipe"],
-    })
-    this.process.stdout.on("data", (chunk) => this.onData(String(chunk)))
-    this.process.stderr.on("data", (chunk) => {
-      const text = String(chunk).trim()
-      if (text) console.error(`[sparseread bridge] ${text}`)
-    })
-    this.process.on("exit", (code, signal) => {
-      const error = new Error(`SparseRead bridge exited code=${code ?? ""} signal=${signal ?? ""}`.trim())
-      for (const pending of this.pending.values()) pending.reject(error)
-      this.pending.clear()
-      this.process = undefined
-      this.protocolCheck = undefined
-    })
-  }
-
-  private onData(text: string) {
-    this.buffer += text
-    while (true) {
-      const index = this.buffer.indexOf("\n")
-      if (index < 0) return
-      const line = this.buffer.slice(0, index).trim()
-      this.buffer = this.buffer.slice(index + 1)
-      if (!line) continue
-      let response: BridgeResponse
-      try {
-        response = JSON.parse(line)
-      } catch (error) {
-        console.error(`[sparseread bridge] invalid json: ${line}`)
-        continue
-      }
-      const pending = this.pending.get(response.id)
-      if (!pending) continue
-      this.pending.delete(response.id)
-      if (response.ok) pending.resolve(response.result)
-      else pending.reject(new Error(response.error || "SparseRead bridge error"))
-    }
-  }
 }
 
 const nativeEvents: NativeEvent[] = []

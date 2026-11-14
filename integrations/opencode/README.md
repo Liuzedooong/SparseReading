@@ -64,7 +64,12 @@ opencode run "Use SparseRead to inspect the large report"
 
 The installer now writes `.opencode/sparseread.json` as the persistent workspace
 config, so production launch no longer depends on shell-specific `source`
-activation. On Windows, use PowerShell and run `uv run --project . python scripts/install_sparseread.py ...`.
+activation. It selects the V1 or V2 entry by the CLI major. OpenCode 1.17.14,
+1.19.5 and 2.3.0 have been exercised on macOS with a local deterministic
+provider; a real-model qualification is tracked separately. On Windows, the
+same command can be run from PowerShell, but Windows host compatibility has not
+yet been qualified. V2 doctor verifies a synthetic host tool call, not model
+quality or performance. Remote workspaces are not supported by the local bridge.
 
 ## Runner
 
