@@ -4,7 +4,7 @@
 
 - 迁入已准入的文本请求/来源身份修复与 workspace 相对路径修复，保留验证和原生回退。
 - 新增 OpenCode V2、修复 Claude hooks/MCP、扩充 Codex 宿主和信任边界检查；各版本实际验证范围见 `docs/framework_upgrade_20261114/validation-summary.md`。
-- NanoBot 0.4.1 官方 AgentLoop 与权限场景在 macOS 完成候选验证：每个持久回合须先选择 stock `read_file` 建立证明，shell 保持原生。最终源码归档仍待验；小样本模型结果不构成性能对照。
+- NanoBot 0.4.1 官方 AgentLoop 与权限场景在 macOS 完成候选验证：每个持久回合须先选择 stock `read_file` 建立证明，shell 保持原生。`05768c8` 源码归档与固定宿主回归已通过；小样本模型结果不构成性能对照。
 
 ## v0.1.3 — 2026-09-28
 
