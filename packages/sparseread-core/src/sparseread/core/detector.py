@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from contextvars import ContextVar
 from pathlib import Path
 
 STRUCTURED_EXTS = {".csv", ".tsv", ".xlsx", ".json", ".yaml", ".yml", ".xml"}
@@ -33,6 +34,11 @@ SKIP_DIRS = {
     ".ruff_cache", "memory", "sessions", "bootstrap", "skills",
 }
 SKIP_FILES = {"AGENTS.md", "BOOTSTRAP.md", "HEARTBEAT.md", "IDENTITY.md", "SOUL.md", "TOOLS.md", "USER.md"}
+
+
+_approved_collection: ContextVar[tuple[Path, tuple[Path, ...]] | None] = ContextVar(
+    "sparseread_detector_approved_collection", default=None
+)
 
 
 @dataclass(slots=True)
@@ -67,8 +73,16 @@ def file_type(path: Path) -> str:
 def inspect_file(path: str | Path, *, large_bytes: int | None = None) -> FileInfo:
     p = Path(path).expanduser().resolve()
     if p.is_dir():
+        approved = _approved_collection.get()
+        if approved is not None:
+            root, allowed = approved
+            if p != root and root not in p.parents:
+                raise ValueError("directory is outside approved collection")
+            candidates = (entry for entry in allowed if p in entry.parents)
+        else:
+            candidates = p.rglob("*")
         files = [
-            entry for entry in p.rglob("*")
+            entry for entry in candidates
             if entry.is_file()
             and entry.name not in SKIP_FILES
             and not any(part in SKIP_DIRS for part in entry.relative_to(p).parts[:-1])

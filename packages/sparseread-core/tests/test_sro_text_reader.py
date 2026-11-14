@@ -639,7 +639,7 @@ def test_collect_readiness_gate_suppresses_repeat_broad_read(tmp_path):
 
     assert first.slot_digest is not None
     assert second.slot_digest is not None
-    assert "broad collect/focus suppressed" in second.summary
+    assert "identical collect request" in second.summary
     assert second.slot_digest["allowed_next"] == ["write_file"]
 
 
@@ -673,7 +673,7 @@ def test_collect_readiness_gate_allows_explicit_low_confidence_verify(tmp_path):
 
     assert first.slot_digest["slots"][0]["confidence"] < 0.9
     assert second.slot_digest is not None
-    assert "broad collect/focus suppressed" not in second.summary
+    assert "identical collect request" not in second.summary
 
 
 def test_collect_readiness_gate_allows_format_mismatch_verify(tmp_path):
@@ -707,11 +707,11 @@ def test_collect_readiness_gate_allows_format_mismatch_verify(tmp_path):
     second = sro.read({"artifact_id": card.artifact_id}, "verify", hint)
 
     assert second.slot_digest is not None
-    assert "broad collect/focus suppressed" not in second.summary
+    assert "identical collect request" not in second.summary
     assert second.slot_digest["slots"][0]["candidate"] == "AI & LLMs: 287"
 
 
-def test_collect_readiness_gate_suppresses_malformed_followup(tmp_path):
+def test_collect_readiness_gate_does_not_hide_malformed_followup(tmp_path):
     path = tmp_path / "report.md"
     path.write_text(
         "Executive summary\n\n"
@@ -739,10 +739,8 @@ def test_collect_readiness_gate_suppresses_malformed_followup(tmp_path):
     second = sro.read({"artifact_id": card.artifact_id}, "focus", {})
 
     assert first.slot_digest is not None
-    assert second.error == ""
-    assert second.slot_digest is not None
-    assert "broad collect/focus suppressed" in second.summary
-    assert second.slot_digest["allowed_next"] == ["write_file"]
+    assert "hint.goal is required" in second.error
+    assert second.slot_digest is None
 
 
 def test_collect_general_text_reader_patterns_are_not_history_specific(tmp_path):

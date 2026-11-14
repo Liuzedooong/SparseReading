@@ -6,6 +6,7 @@ import csv
 import json
 import re
 from dataclasses import dataclass
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,24 @@ class CollectionReader:
         ".ruff_cache", "memory", "sessions", "bootstrap", "skills",
     }
     _SKIP_FILES = {"AGENTS.md", "BOOTSTRAP.md", "HEARTBEAT.md", "IDENTITY.md", "SOUL.md", "TOOLS.md", "USER.md"}
+
+    def __init__(self) -> None:
+        self._approved_files: ContextVar[dict[str, tuple[int, ...]] | None] = ContextVar(
+            f"sparseread_approved_files_{id(self)}", default=None
+        )
+
+    def _check_approved_file(self, path: Path) -> None:
+        approved = self._approved_files.get()
+        if approved is None:
+            return
+        try:
+            resolved = path.resolve(strict=True)
+            stat = path.stat()
+            identity = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            if path.is_symlink() or str(resolved) != str(path) or approved.get(str(path)) != identity:
+                raise ValueError("collection source changed after permission preflight")
+        except OSError as error:
+            raise ValueError("collection source changed after permission preflight") from error
 
     def card_details(self, path: Path, *, limit: int = 20) -> dict:
         items = self._items(path)
@@ -158,7 +177,11 @@ class CollectionReader:
 
     def _items(self, path: Path) -> list[CollectionItem]:
         out: list[CollectionItem] = []
-        for entry in sorted(path.rglob("*")):
+        approved = self._approved_files.get()
+        entries = (Path(name) for name in approved) if approved is not None else path.rglob("*")
+        for entry in sorted(entries):
+            if approved is not None:
+                self._check_approved_file(entry)
             if not entry.is_file():
                 continue
             if entry.name in self._SKIP_FILES:
@@ -220,8 +243,8 @@ class CollectionReader:
             return suffix[1:]
         return "text"
 
-    @staticmethod
-    def _read_source_text(path: Path) -> str:
+    def _read_source_text(self, path: Path) -> str:
+        self._check_approved_file(path)
         text = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
         suffix = path.suffix.lower()
         if suffix in {".html", ".htm"}:

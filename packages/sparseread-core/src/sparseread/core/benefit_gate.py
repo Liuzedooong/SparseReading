@@ -389,15 +389,18 @@ class BenefitGate:
             scope_kind="collection",
         )
 
-    @classmethod
-    def _contains_long_pdf(cls, path: Path) -> bool:
+    def _contains_long_pdf(self, path: Path) -> bool:
         try:
-            return any(
-                entry.is_file()
-                and entry.suffix.lower() == ".pdf"
-                and entry.stat().st_size >= cls._DOCUMENT_FORCE_BYTES
-                for entry in path.rglob("*")
-            )
+            approved = self.collection_reader._approved_files.get()
+            entries = (Path(name) for name in approved) if approved is not None else path.rglob("*")
+            for entry in entries:
+                if entry.suffix.lower() != ".pdf":
+                    continue
+                if approved is not None:
+                    self.collection_reader._check_approved_file(entry)
+                if entry.is_file() and entry.stat().st_size >= self._DOCUMENT_FORCE_BYTES:
+                    return True
+            return False
         except OSError:
             return False
 

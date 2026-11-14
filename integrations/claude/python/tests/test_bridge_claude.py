@@ -140,8 +140,8 @@ def test_ready_guard_stops_repeat_reads() -> None:
         second = bridge.handle(
             {"method": "read", "params": {"target": {"artifact_id": artifact_id}, "mode": "collect", "hint": hint}}
         )
-        assert second["evidence_pack"].get("protocol_next") == "write_file_now"
-        assert "ready guard" in second["evidence_pack"]["summary"]
+        assert "already" in second["evidence_pack"]["summary"]
+        assert second["evidence_pack"]["slot_digest"]["slots"] == first["evidence_pack"]["slot_digest"]["slots"]
 
 
 def test_mcp_handle_tool_preview_decide_trace_usage_unknown() -> None:

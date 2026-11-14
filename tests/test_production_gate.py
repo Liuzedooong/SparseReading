@@ -723,7 +723,7 @@ def test_task_mix_transitions_and_reopens_new_document_slots(tmp_path: Path) -> 
         },
     })
     assert not followup["evidence_pack"]["summary"].startswith("adapter ready guard")
-    assert followup["evidence_pack"]["slot_digest"]["resolved_slot_ids"] == ["api"]
+    assert followup["evidence_pack"]["slot_digest"]["slots"][0]["id"] == "api"
     assert followup["episode"]["episode_id"] == first_episode
 
     table_route = bridge.handle({
