@@ -93,9 +93,11 @@ Claude Code 使用 MCP 加逐事件 `PreToolUse`/`PostToolUse` hooks，不使用
 ### 当前源码候选验证
 
 在 macOS arm64 上，OpenCode 2.3.0（另测 V1 1.17.14/1.19.5）、Claude Code
-2.1.325 和 Codex CLI 0.169.0 已完成相应真实宿主的确定性协议检查。OpenCode、Claude 和 Codex 各有一次有限 DeepSeek 工作流；Claude 和 Codex 使用
-仅供测试的协议转换器，Claude 的模型运行早于最终候选的少量改动。NanoBot 0.4.1、最终整包以及当前候选的 Pi/OpenClaw
-回归仍在进行。上述结果不建立 Windows、Desktop、远程环境支持或升级后的性能收益；
+2.1.325、Codex CLI 0.169.0 和官方 NanoBot 0.4.1 AgentLoop 已完成相应真实宿主的
+确定性协议检查，并各有一次有限 DeepSeek 工作流。Claude 和 Codex 使用仅供测试的
+协议转换器，Claude 的模型运行早于最终候选的少量改动；NanoBot 使用官方宿主与
+Chat SSE。NanoBot 每个持久回合须先选择原生 stock `read_file` 才能直接访问
+SparseRead 源，shell 继续走原生路径。最终整包以及当前候选的 Pi/OpenClaw 回归仍在进行。上述结果不建立 Windows、Desktop、远程环境支持或升级后的性能收益；
 详细范围和证据见[验证矩阵](docs/framework_upgrade_20261114/validation-summary.md)。
 
 ## 安装

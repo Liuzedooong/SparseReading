@@ -24,7 +24,7 @@ jobs:
       - name: Run Python release tests
         env:
           PYTHONPATH: ${{ github.workspace }}/packages/sparseread-core/src:${{ github.workspace }}/integrations/nanobot/python/src:${{ github.workspace }}/integrations/opencode/python/src:${{ github.workspace }}/integrations/openclaw/python/src:${{ github.workspace }}/integrations/claude/python/src
-        run: uv run --project . --extra test pytest -q
+        run: uv run --project . --extra test --with 'nanobot-ai==0.4.1' pytest -q
       - name: Test Pi extension
         working-directory: integrations/pi/package
         run: |

@@ -106,8 +106,13 @@ uv pip install \
   integrations/nanobot/python
 ```
 
-NanoBot 0.4.1 compatibility for the current candidate is still under
-validation; historical paper results do not establish that host version.
+The official `nanobot-ai==0.4.1` host and the current adapter have been
+validated on macOS arm64 for the scenarios in the validation matrix. Install
+the optional `nanobot` extra or the pinned host separately, then call
+`sparseread_nanobot.install(agent)` before the AgentLoop starts. Each persistent
+turn must first select the stock `read_file` to establish the reader policy;
+a bounded read qualifies. Shell calls remain native. Other NanoBot versions and
+Windows are not qualified by these tests.
 
 ## Modes
 
