@@ -27,19 +27,20 @@ test("advisory onboarding counts only successful nonempty evidence", () => {
   for (const value of [null, {}, { evidence_pack: { evidence: [] } }, { evidence_pack: { evidence: [{ text: " " }] } }, { evidence_pack: { error: "stale", evidence: [{ text: "x" }] } }, { evidence_pack: { adapter_guard: "ready", evidence: [{ text: "x" }] } }, { evidence_pack: { next_action: { guard: "ready" }, evidence: [{ text: "x" }] } }]) assert.equal(isEvidence(value), false)
 })
 
-test("one-time claim is durable and limited to advisory after 24 elapsed hours", () => {
+test("one-time claim is durable and limited to advisory after 48 elapsed hours", () => {
   const { config, plugin, state } = fakeGlobal()
   recordEvidence(plugin, 1000)
   recordEvidence(plugin, 2000)
   assert.equal(JSON.parse(fs.readFileSync(path.join(state, "first-use.json"))).firstUse, 1000)
   assert.equal(fs.statSync(path.join(state, "first-use.json")).mode & 0o777, 0o600)
-  assert.equal(claimSuggestion(plugin, 1000 + 86400000 - 1), undefined)
+  assert.equal(claimSuggestion(plugin, 1000 + 86400000 + 1), undefined)
+  assert.equal(claimSuggestion(plugin, 1000 + 172800000 - 1), undefined)
   fs.writeFileSync(path.join(config, "sparseread.json"), JSON.stringify({ policy: "auto" }))
-  assert.equal(claimSuggestion(plugin, 1000 + 86400000), undefined)
+  assert.equal(claimSuggestion(plugin, 1000 + 172800000), undefined)
   fs.writeFileSync(path.join(config, "sparseread.json"), JSON.stringify({ policy: "advisory", unrelated: "x".repeat(5000) }))
-  assert.equal(typeof claimSuggestion(plugin, 1000 + 86400000), "function")
+  assert.equal(typeof claimSuggestion(plugin, 1000 + 172800000), "function")
   assert.equal(fs.statSync(path.join(state, "suggested")).mode & 0o777, 0o600)
-  assert.equal(claimSuggestion(plugin, 1000 + 90000000), undefined)
+  assert.equal(claimSuggestion(plugin, 1000 + 180000000), undefined)
 })
 
 test("global live event toast and state failure leave reading intact", async t => {
@@ -70,7 +71,7 @@ test("global live event toast and state failure leave reading intact", async t =
   assert.equal(result.metadata.sparsereadAdvisoryEvidence, true)
   handler({ data: { sessionID: "s", metadata: result.metadata } })
   assert.equal(notifications.length, 0)
-  fs.writeFileSync(path.join(state, "first-use.json"), JSON.stringify({ firstUse: Date.now() - 86401000 }))
+  fs.writeFileSync(path.join(state, "first-use.json"), JSON.stringify({ firstUse: Date.now() - 172801000 }))
   result = await invoke("ok")
   handler({ data: { sessionID: "s", metadata: result.metadata } })
   assert.equal(notifications.length, 1)

@@ -49,10 +49,10 @@ Codex CLI `0.169.0` 的实验性 app-server schema，并在隔离项目验证六
 旧版本兼容性，建议先更新到具备这些接口的版本。
 
 ```sh
-curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4.zip &&
-curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS &&
-grep '  sparseread-source-installer-v0.1.4.zip$' SHA256SUMS | shasum -a 256 -c - &&
-unzip -q sparseread-source-installer-v0.1.4.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4-20261114.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS-20261114 &&
+grep '  sparseread-source-installer-v0.1.4-20261114.zip$' SHA256SUMS-20261114 | shasum -a 256 -c - &&
+unzip -q sparseread-source-installer-v0.1.4-20261114.zip &&
 cd sparseread-v0.1.4
 
 uv run --no-project --python 3.12 python scripts/install_sparseread.py \

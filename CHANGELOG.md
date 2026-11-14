@@ -2,6 +2,7 @@
 
 ## v0.1.4 — 2026-11-14
 
+- OpenCode V2 新增用户级全局安装。初装默认 `advisory`；首次成功取证满 48 小时后，下一次成功取证会在终端提示一次，可自行选择是否切换到 `auto`。
 - 迁入已准入的文本请求/来源身份修复与 workspace 相对路径修复，保留验证和原生回退。
 - 新增 OpenCode V2、修复 Claude hooks/MCP、扩充 Codex 宿主和信任边界检查；各版本实际验证范围见 `docs/framework_upgrade_20261114/validation-summary.md`。
 - NanoBot 0.4.1 官方 AgentLoop 与权限场景在 macOS 完成验证：每个持久回合须先选择 stock `read_file` 建立证明，shell 保持原生。`05768c8` 源码归档与固定宿主回归已通过；小样本模型结果不构成性能对照。

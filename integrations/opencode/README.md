@@ -72,10 +72,9 @@ yet been qualified. V2 doctor verifies a synthetic host tool call, not model
 quality or performance. Remote workspaces are not supported by the local bridge.
 
 
-### Optional global OpenCode V2 install (development checkout only)
+### Global OpenCode V2 install
 
-This option is in the current development source; the published v0.1.4 ZIP
-does not include `--global`. From this checkout, run:
+Run this command from the [updated v0.1.4 installer](../../docs/installation.md#download-the-v014-installer):
 
 ```bash
 uv run --no-project --python 3.12 python scripts/install_sparseread.py \
@@ -93,7 +92,7 @@ workspaces. Restart OpenCode after installation.
 A fresh global install defaults to `advisory`; a reinstall without an explicit
 mode retains the existing policy and bridge mode. Switching to auto requires rerunning
 the installer with `--platform opencode --global --sparseread-mode auto`, then
-restarting OpenCode. In the local terminal UI, 24 hours after the first successful
+restarting OpenCode. In the local terminal UI, 48 hours after the first successful
 nonempty `sro_read` evidence result in advisory mode, the next such use displays
 a one-time suggestion to consider auto. No mode changes automatically. The suggestion requires
 the local TUI to be open during a qualifying use; headless runs do not show it.

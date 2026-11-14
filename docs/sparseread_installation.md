@@ -86,10 +86,9 @@ Claude Code 2.1.325、Codex CLI 0.169.0 与官方 NanoBot 0.4.1 的指定宿主�
 [验证矩阵](framework_upgrade_20261114/validation-summary.md)。
 
 
-## OpenCode V2 全局安装（仅开发源码）
+## OpenCode V2 全局安装
 
-此选项目前只存在于开发源码，已发布的 v0.1.4 安装 ZIP 不包含 `--global`。
-在包含此功能的开发检出目录中执行：
+在更新后的 v0.1.4 安装目录中执行：
 
 ```bash
 uv run --no-project --python 3.12 python scripts/install_sparseread.py \
@@ -105,7 +104,7 @@ uv run --no-project --python 3.12 python scripts/install_sparseread.py \
 全局初次安装默认 `advisory`；重装时不指定模式会保留原有 policy 和 bridge 模式。
 若希望改用 auto，可自行用 `--platform opencode --global --sparseread-mode auto`
 重跑安装并重启 OpenCode。在本地终端 UI 中，首次在 advisory 模式下成功取得非空 `sro_read` 证据
-满 24 小时后，下一次符合条件的读取会显示一次建议；不会自动切换模式。提示需要读取发生时本地 TUI 正在运行；
+满 48 小时后，下一次符合条件的读取会显示一次建议；不会自动切换模式。提示需要读取发生时本地 TUI 正在运行；
 无界面运行不会显示提示。此功能只保存首次时间和是否提示，不保存来源路径或内容。
 
 在实测的 2.3.0 中，全局与项目中同 ID 的插件同时存在时，宿主只运行全局副本，
@@ -125,10 +124,10 @@ uv run --no-project --python 3.12 python scripts/install_sparseread.py \
 下载源码安装归档（以下校验命令适用于 macOS）：
 
 ```bash
-curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4.zip &&
-curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS &&
-grep '  sparseread-source-installer-v0.1.4.zip$' SHA256SUMS | shasum -a 256 -c - &&
-unzip -q sparseread-source-installer-v0.1.4.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4-20261114.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS-20261114 &&
+grep '  sparseread-source-installer-v0.1.4-20261114.zip$' SHA256SUMS-20261114 | shasum -a 256 -c - &&
+unzip -q sparseread-source-installer-v0.1.4-20261114.zip &&
 cd sparseread-v0.1.4
 ```
 
