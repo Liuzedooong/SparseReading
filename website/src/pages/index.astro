@@ -55,7 +55,7 @@ const faqs: { q: string; a: string; claimId?: string }[] = [
   },
   {
     q: "How do I install it?",
-    a: "Clone the GitHub repo, then use the Quickstart for your agent. Source install today — pick a platform and copy the command.",
+    a: "Download the v0.1.4 source installer archive, then use the Quickstart for your agent.",
   },
   {
     q: "Can I add a custom compression tool to SparseRead?",
@@ -151,7 +151,7 @@ const harnesses = [
   {
     id: "claude" as const,
     name: "Claude Code",
-    version: "2.1.325 candidate",
+    version: "2.1.325 validated",
     line: "MCP + per-event hooks · macOS validation",
   },
 ];
@@ -290,18 +290,29 @@ const [taglineLead, taglineStop] = glossary.tagline.split(/(?<=\.)\s+/);
 
     <section id="frameworks">
       <p class="section-label">02 / Frameworks</p>
-      <h2>Same protocol, four harnesses</h2>
+      <h2>Same protocol, six adapters</h2>
       <p>
         SparseRead is a thin adapter around one token-efficient reading runtime, not a new agent.
         The paper evaluates NanoBot, OpenCode, and OpenClaw at the versions shown below.
-        Claude Code 2.1.325 has candidate host validation; the upgrade has not yet been released.
+        Claude Code 2.1.325, OpenCode 2.3.0 and Codex CLI 0.169.0 have scoped macOS host validation.
         NanoBot 0.4.1 also passed scoped macOS AgentLoop validation: each persistent turn
         requires a stock read_file selection before direct SparseRead source access, and shell stays native.
         The 0.3.0 number shown below is the historical paper host. The <code>05768c8</code> source
         archive also passed scoped Pi 0.87.1 and OpenClaw 2026.7.1-2 macOS checks;
         these are fixed-version regressions, not latest-version upgrade claims. Token savings are not uniform.
       </p>
-      <div class="harness-strip" data-claim-id={tab1.id} aria-label="Paper harnesses and candidate adapters">
+      <table>
+        <thead><tr><th>Adapter</th><th>Scoped host validation on macOS arm64</th></tr></thead>
+        <tbody>
+          <tr><td>NanoBot</td><td>0.4.1 official AgentLoop</td></tr>
+          <tr><td>OpenCode</td><td>2.3.0; V1 1.17.14 and 1.19.5</td></tr>
+          <tr><td>Claude Code</td><td>2.1.325</td></tr>
+          <tr><td>Codex CLI</td><td>0.169.0; Desktop, Cloud and Web unqualified</td></tr>
+          <tr><td>Pi</td><td>0.87.1 (fixed-version regression)</td></tr>
+          <tr><td>OpenClaw</td><td>2026.7.1-2 (fixed-version regression)</td></tr>
+        </tbody>
+      </table>
+      <div class="harness-strip" data-claim-id={tab1.id} aria-label="Paper harnesses and validated adapters">
         <div class="harness-track">
           {harnessLoop.map((item, index) => (
             <div class="harness-card" aria-hidden={index >= harnesses.length}>
@@ -477,14 +488,22 @@ const [taglineLead, taglineStop] = glossary.tagline.split(/(?<=\.)\s+/);
       <p class="section-label">06 / Quickstart</p>
       <h2>Install into the agent you already use</h2>
       <p>
-        Source install from GitHub. Clone once, then pick a framework.
-        There is no PyPI or plugin-marketplace pin yet.
+        Download the v0.1.4 source installer, then pick a framework.
+        PyPI project registration is pending. The commands below use macOS checksum tools.
+      </p>
+      <p>
+        <a href="https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4.zip">Download source installer ZIP</a>
+        {' · '}
+        <a href="https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS">Download SHA256SUMS</a>
       </p>
       <CopySnippet
         client:load
-        label="Clone"
-        code={`git clone https://github.com/Liuzedooong/SparseReading.git
-cd SparseReading`}
+        label="Download v0.1.4"
+        code={`curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS &&
+grep '  sparseread-source-installer-v0.1.4.zip$' SHA256SUMS | shasum -a 256 -c - &&
+unzip -q sparseread-source-installer-v0.1.4.zip &&
+cd sparseread-v0.1.4`}
       />
       <InstallTabs client:load />
       <p>
@@ -507,7 +526,7 @@ cd SparseReading`}
           models {setup.models.join(", ")})
         </span>;
         frameworks {setup.frameworks.map((item) => `${item.name} ${item.version}`).join(", ")}.
-        Claude Code is not a paper Table 1 row. The 2.1.325 candidate has separate macOS host validation; it is not a new published release.
+        Claude Code is not a paper Table 1 row. Version 2.1.325 has separate scoped macOS host validation.
       </p>
       <p>
         This checkout can replay the recorded Figure 8 flagship / multi-file audit / force-mode boundary packets

@@ -49,19 +49,20 @@ Codex CLI `0.169.0` 的实验性 app-server schema，并在隔离项目验证六
 旧版本兼容性，建议先更新到具备这些接口的版本。
 
 ```sh
-git clone https://github.com/Liuzedooong/SparseReading.git
-cd SparseReading
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/sparseread-source-installer-v0.1.4.zip &&
+curl -fLO https://github.com/Liuzedooong/SparseReading/releases/download/v0.1.4/SHA256SUMS &&
+grep '  sparseread-source-installer-v0.1.4.zip$' SHA256SUMS | shasum -a 256 -c - &&
+unzip -q sparseread-source-installer-v0.1.4.zip &&
+cd sparseread-v0.1.4
 
-uv run --python 3.12 python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform codex --workspace /absolute/path/to/project --doctor
 
-uv run --python 3.12 python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform pi --workspace /absolute/path/to/project --doctor
 ```
 
-两个扩展最早从 `v0.1.2` 提供；`v0.1.3` 是历史标签，不包含本轮升级。
-当前候选尚未发布新 source installer，需使用包含候选提交的 checkout。
-旧仓库 release 附件未迁移；不要将历史标签当成本轮新包。
+两个扩展最早从 `v0.1.2` 提供；`v0.1.3` 是历史标签，不包含本轮升级。使用以上 v0.1.4 源码安装归档；校验命令适用于 macOS。
 
 若 Pi 重装时报 `Project is not trusted`，先审核目标项目的文件和扩展，然后
 显式加 `--pi-approve` 重跑安装命令。它仅为本次 Pi 安装命令提供项目批准，
@@ -100,9 +101,9 @@ hook。Pi：重启或 `/reload`，审核后批准项目扩展。**安装器不�
 可先预览变更，再选择仅提示模式：
 
 ```sh
-uv run --python 3.12 python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform codex --workspace /absolute/path/to/project --dry-run
-uv run --python 3.12 python scripts/install_sparseread.py \
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
   --platform pi --workspace /absolute/path/to/project --sparseread-mode advisory
 ```
 

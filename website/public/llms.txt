@@ -13,10 +13,17 @@ SparseRead is a training-free reading layer that admits only the evidence needed
 
 A thin adapter around one token-efficient reading runtime, not a new agent. A Read Gate decides whether to read sparse; Reader Backends admit a bounded evidence slice. It is not post-hoc summarization, KV-cache compression, or an always-on replacement for native tools.
 
+## Installation
+
+Download the v0.1.4 source installer ZIP and SHA256SUMS from
+https://github.com/Liuzedooong/SparseReading/releases/tag/v0.1.4 and follow the
+installation guide. PyPI project registration is pending.
+
 ## Adapter validation
 
 The source tree contains Claude Code, OpenCode, OpenClaw, NanoBot, Codex and Pi
-adapters. Validation is specific to host version and platform. NanoBot 0.4.1
+adapters. Scoped macOS arm64 host validation includes OpenCode 2.3.0 and V1
+1.17.14/1.19.5, Claude Code 2.1.325 and Codex CLI 0.169.0. Validation is specific to host version and platform. NanoBot 0.4.1
 passed scoped macOS AgentLoop tests: each persistent turn requires selecting
 stock read_file before direct SparseRead source access, and shell stays native.
 The 05768c8 source archive passed scoped macOS Pi 0.87.1 and OpenClaw
