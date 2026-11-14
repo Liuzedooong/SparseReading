@@ -90,9 +90,10 @@ activated each path; Claude and Codex used test-only wire adapters, while
 NanoBot used the stock host and Chat SSE. The Claude model workflow used an
 earlier candidate. NanoBot direct SparseRead source access requires a stock
 `read_file` selected in each persistent turn, and shell calls remain native.
-The final integrated release archive remains in progress; Pi and OpenClaw
-require final-candidate regression. Windows, Desktop,
-remote environments and performance gains for these upgraded adapters are not
+The source archive built from `05768c8` also passed host regression for Pi
+0.87.1 and OpenClaw 2026.7.1-2; these are fixed-version checks, not claims of
+latest-version upgrades. Windows, Desktop, remote environments and performance
+gains for these upgraded adapters are not
 established by those checks. See the [validation matrix](docs/framework_upgrade_20261114/validation-summary.md).
 
 ## Install

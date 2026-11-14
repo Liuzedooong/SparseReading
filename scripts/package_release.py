@@ -52,6 +52,7 @@ SOURCE_PATHS = (
     "docs/release_architecture.md",
     "docs/codex-pi-adapters.md",
     "docs/framework_upgrade_20261114/validation-summary.md",
+    "docs/framework_upgrade_20261114/f4-final-validation.md",
     "docs/framework_upgrade_20261114/core-implementation.md",
     "docs/framework_upgrade_20261114/opencode-implementation.md",
     "docs/framework_upgrade_20261114/claude-implementation.md",

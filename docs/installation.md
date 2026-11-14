@@ -98,6 +98,10 @@ uv run --project . python scripts/install_sparseread.py \
   --doctor
 ```
 
+Pi 0.87.1 and OpenClaw 2026.7.1-2 were exercised from the `05768c8` source
+archive on macOS using their actual SDK or CLI. These are fixed-version
+regressions, not claims of latest-version upgrades.
+
 NanoBot uses ordinary Python packages:
 
 ```bash

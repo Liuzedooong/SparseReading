@@ -97,7 +97,9 @@ Claude Code 使用 MCP 加逐事件 `PreToolUse`/`PostToolUse` hooks，不使用
 确定性协议检查，并各有一次有限 DeepSeek 工作流。Claude 和 Codex 使用仅供测试的
 协议转换器，Claude 的模型运行早于最终候选的少量改动；NanoBot 使用官方宿主与
 Chat SSE。NanoBot 每个持久回合须先选择原生 stock `read_file` 才能直接访问
-SparseRead 源，shell 继续走原生路径。最终整包以及当前候选的 Pi/OpenClaw 回归仍在进行。上述结果不建立 Windows、Desktop、远程环境支持或升级后的性能收益；
+SparseRead 源，shell 继续走原生路径。`05768c8` 源码归档也通过 Pi 0.87.1 与
+OpenClaw 2026.7.1-2 的指定宿主回归；这是固定版本验证，不代表两者均已升级至最新版。
+上述结果不建立 Windows、Desktop、远程环境支持或升级后的性能收益；
 详细范围和证据见[验证矩阵](docs/framework_upgrade_20261114/validation-summary.md)。
 
 ## 安装
