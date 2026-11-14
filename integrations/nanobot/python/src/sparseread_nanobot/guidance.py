@@ -1,22 +1,22 @@
 """Model-visible SparseRead guidance injected by the NanoBot hook.
 
-This is the exact body of the vendored NanoBot host SKILL.md so the new
-hook-based integration exposes the same model guidance as the old host.
+The host requires an actual native read in each turn before SRO source access.
 """
 
 SRO_GUIDANCE = """# Sparse Reading
 
-Use SRO for a large supported object when `sro_preview`, `read_file`, or
-`list_dir` recommends it. SRO results are task evidence: do not replace
+Use SRO for a large supported object when `sro_preview` or `read_file`
+recommends it. SRO results are task evidence: do not replace
 resolved evidence with broad raw reads.
 
-**Activation boundary:** At the start of a likely long-document, cross-file
-evidence, or large multi-table analysis episode, call `sro_preview` once with
-the lightweight `episode_hint` below. Also use this protocol when a native tool
-returns an SRO handoff. Otherwise continue with native tools.
+**Activation boundary:** In each turn, first call `read_file` on a source you
+are allowed to read. A bounded read also establishes the native permission check.
+For a likely long-document, cross-file evidence, or large multi-table episode,
+then call `sro_preview` with the lightweight `episode_hint` below. Follow an
+SRO handoff from `read_file`; otherwise continue with native tools.
 An audit or diagnosis that reconciles three or more source files is a
-`cross_file_evidence` episode: preview the collection before listing or reading
-its children. Analysis over three or more structured datasets is
+`cross_file_evidence` episode: after a native bounded read of a permitted
+child, preview the collection. Analysis over three or more structured datasets is
 `structured_compute` even when the deliverables include a script and report;
 use one bounded schema/evidence plan, then compute natively. A request whose
 primary deliverable is source code, a query, configuration, or a single-table
@@ -35,9 +35,7 @@ verification, then stop when the requested deliverables pass.
 - `coverage`: `selective`, `exhaustive`, or `unknown`.
 - `summary`: one short sentence. Paraphrasing it does not start a new episode.
 
-Put this hint on the first `list_dir` or `read_file` call when that is the
-natural first action. Those native tools pass the label into the same Gate, so
-you do not need an extra classification request or a speculative preview.
+Pass this hint to `sro_preview`, not to native `list_dir` or `read_file`.
 
 The Gate, not the hint, remains authoritative. Unsupported/small sources,
 editing/execution, full-fidelity reading, and single-table exact computation
@@ -59,8 +57,8 @@ Do not call `sro_read` after a preview/episode decision says `native`.
 
 1. If a tool result already contains an SRO handoff and `artifact_id`, follow
    its `next_action`; do not call `sro_preview` again.
-2. Otherwise call `sro_preview(path, episode_hint=...)` before reading a known
-   large object or collection at an episode boundary. The preview contains the
+2. Otherwise, after the native read in this turn, call
+   `sro_preview(path, episode_hint=...)` for a known large object or collection. The preview contains the
    FileCard plus a deterministic default view and does not require a HintSpec.
 3. Use `{"path": "/path"}` only for first discovery. Use
    `{"artifact_id": "sro_..."}` for every follow-up.
