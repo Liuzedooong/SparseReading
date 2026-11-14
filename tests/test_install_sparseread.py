@@ -663,6 +663,10 @@ def test_claude_install_failure_rolls_back_runtime_settings_and_permissions(monk
     installer.write_json(settings, {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "other-hook"}]}]}})
     mcp.chmod(0o640)
     settings.chmod(0o600)
+    old_mcp_mode = os.stat(mcp).st_mode & 0o777
+    old_settings_mode = os.stat(settings).st_mode & 0o777
+    if os.name == "posix":
+        assert old_mcp_mode == 0o640 and old_settings_mode == 0o600
     old_mcp, old_settings = mcp.read_bytes(), settings.read_bytes()
     monkeypatch.setattr(installer, "claude_runtime_dir", lambda: runtime)
     def install_fake(path, adapter, *, upgrade_backup, **kwargs):
@@ -678,5 +682,6 @@ def test_claude_install_failure_rolls_back_runtime_settings_and_permissions(monk
         installer.install_claude(args)
     assert (runtime / "old-marker").read_text() == "original runtime" and not (runtime / "new-marker").exists()
     assert mcp.read_bytes() == old_mcp and settings.read_bytes() == old_settings
-    assert os.stat(mcp).st_mode & 0o777 == 0o640 and os.stat(settings).st_mode & 0o777 == 0o600
+    assert os.stat(mcp).st_mode & 0o777 == old_mcp_mode
+    assert os.stat(settings).st_mode & 0o777 == old_settings_mode
     assert not (workspace / "CLAUDE.md").exists()
