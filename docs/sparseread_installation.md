@@ -1,20 +1,24 @@
 # SparseRead 安装指南
 
 这份文档描述当前 single-repo 分支的默认源码安装形态。SparseRead 现在是
-四框架共享一个 core（`packages/sparseread-core`），每个框架的桥接面不同：
+多个框架共享一个 core（`packages/sparseread-core`），桥接面不同：
 
 - NanoBot：作为普通 Python 依赖安装（`sparseread-core` + `sparseread-nanobot`），
   由 NanoBot 框架内部加载 adapter；
 - OpenCode：通过 TS 插件 + Python bridge 安装到 workspace；
 - OpenClaw：通过 npm 插件包 + Python bridge 安装到 OpenClaw profile；
-- Claude Code：通过 MCP stdio server + PreToolUse/PostToolUse session hook
+- Claude Code：通过 MCP stdio server + 逐事件 PreToolUse/PostToolUse hook
   安装（Claude Code 没有 npm 插件系统，`.mcp.json` 和
   `.claude/settings.local.json` 就是它的“插件形态”）。
 
 这还不是 PyPI/npm/官方插件市场的一键发行版。当前目标是让开源用户能从源码
-稳定安装、验证、使用，并且四个框架使用同一套 core 能力。
+稳定安装、验证、使用，并通过共享 core 保持协议一致。Codex/Pi 入口见
+[单独指南](codex-pi-adapters.md)。
 
-当前源码安装目标支持 macOS、Linux、Windows。Windows 默认推荐路径是 **PowerShell 原生安装**，不推荐把日常产品安装建立在 WSL shell wrapper 之上。仓库里的 PinchBench/QwenClawBench benchmark runtime 仍包含 POSIX `/tmp`、shell wrapper 等假设，不作为 Windows 日常安装验证的一部分；Windows 用户优先使用本指南中的 release fixture、doctor 和快速体验测试。
+当前候选的已核验范围以 [验证矩阵](framework_upgrade_20261114/validation-summary.md)
+为准，主要是 macOS arm64 指定版本。Linux、Windows、Desktop 和远程环境不能因
+安装脚本存在就视为已通过；[Windows 历史记录](https://github.com/Liuzedooong/SparseReading/blob/main/docs/windows_fresh_install_test_report.md)
+只描述当时的旧候选，不代表本轮适配验证。源码安装归档不包含 tests 或 benchmark。
 
 ## 当前生产入口
 
@@ -30,7 +34,7 @@ sro_raw(raw_ref) -> 明确需要原文时的回溯入口
 
 ## 模型可见的 SparseRead 指南在哪里
 
-当前四框架不是完全相同的 skill 文件形态：
+各框架不是完全相同的 skill 文件形态：
 
 - NanoBot adapter 内置 guidance（与旧宿主 SKILL.md 正文一致，以 system 消息
   注入），不依赖仓库内的 NanoBot framework checkout。
@@ -45,7 +49,7 @@ sro_raw(raw_ref) -> 明确需要原文时的回溯入口
 
 - Python 3.11+
 - `uv`
-- Node.js 22.22.2+，或 Node.js 24.15.0+
+- 已安装安全更新的 Node.js 22 或更高版本
 - `npm`
 - Git
 - 已安装的 OpenCode CLI、OpenClaw CLI 或 Claude Code CLI（按目标框架选择）
@@ -57,13 +61,10 @@ Windows 上如果 `npm`、`openclaw` 等入口实际是 `.cmd/.exe/.bat`，安�
 可用 `--python /path/to/python3.12` 显式指定。默认安装 PDF/XLSX 阅读器，纯文本部署可用
 `--reader-extras none` 减少 runtime 依赖。
 
-当前源码安装验证使用过：
-
-- OpenCode `1.17.14`
-- OpenClaw `2026.6.11`
-- Claude Code `2.1.221`
-
-OpenClaw 插件声明的 host 版本要求是 `openclaw >= 2026.5.17`。更旧版本只有在保留相同 plugin/tool API 时才可能可用。
+当前候选在 macOS arm64 上验证过 OpenCode 2.3.0（另测 V1 1.17.14/1.19.5）、
+Claude Code 2.1.325 与 Codex CLI 0.169.0 的指定宿主路径。NanoBot 0.4.1、
+最终整包及本轮 Pi/OpenClaw 回归仍在进行；各自模型、权限和工件边界见验证矩阵。
+历史 OpenClaw 2026.6.11 记录不代表当前候选已完成验证。
 
 用户安装时只需要选择一个 SparseRead 模式：
 
@@ -72,16 +73,18 @@ OpenClaw 插件声明的 host 版本要求是 `openclaw >= 2026.5.17`。更旧�
 
 不传 `--sparseread-mode` 时就是 `auto`。OpenClaw `2026.6.11` 的 `auto` 会自动配置必要的 lifecycle hook 权限；如果 `doctor` 报告 hook 未加载，优先检查 OpenClaw 插件权限或 profile 配置。只有明确想关闭拦截时，才使用 `--sparseread-mode advisory`。
 
-## 支持矩阵
+## 验证范围
 
-| 场景 | macOS / Linux | Windows PowerShell |
-|---|---|---|
-| OpenCode 源码安装 | ✅ 支持 | ✅ 支持 |
-| OpenClaw 源码安装 | ✅ 支持 | ✅ 支持 |
-| Claude Code 源码安装 | ✅ 支持 | ⚠️ MCP 连接需单独验证（见下文） |
-| NanoBot 源码/依赖安装 | ✅ 支持 | ✅ 支持 |
-| quick test / doctor | ✅ 支持 | ✅ 支持 |
-| benchmark shell runtime | ✅ 可用 | ⚠️ 不作为默认安装路径 |
+| 路径 | 本轮状态 |
+|---|---|
+| OpenCode 2.3.0；V1 1.17.14/1.19.5 | macOS arm64 指定宿主场景通过；远程和其他系统未验证 |
+| Claude Code 2.1.325 | macOS arm64 hooks/MCP 指定场景通过；Windows/PowerShell 未验证 |
+| Codex CLI 0.169.0 | macOS arm64 指定 CLI 场景通过；Desktop/Cloud/Web 未验证 |
+| NanoBot 0.4.1 | 本轮集成与独立验证进行中 |
+| OpenClaw / Pi | 历史记录保留；本次最终候选回归待完成 |
+
+真实模型验证和确定性测试、候选 wheel 与最终归档的区别见
+[验证矩阵](framework_upgrade_20261114/validation-summary.md)。
 
 ## Fresh Machine 安装
 
@@ -92,7 +95,7 @@ git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 ```
 
-先跑 release fixture，确认 core 和两个 bridge 都能启动：
+以下测试需要完整 git checkout；源码安装归档不包含 tests。先跑 release fixture：
 
 ```bash
 PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integrations/opencode/python/src:integrations/openclaw/python/src:integrations/claude/python/src" \
@@ -109,7 +112,7 @@ PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integra
 Windows PowerShell 可直接使用：
 
 ```powershell
-PYTHONPATH="packages/sparseread-core/src;integrations\nanobot\python\src;integrations\opencode\python\src;integrations\openclaw\python\src;integrations\claude\python\src" `
+$env:PYTHONPATH="packages/sparseread-core/src;integrations\nanobot\python\src;integrations\opencode\python\src;integrations\openclaw\python\src;integrations\claude\python\src"
   uv run --project . --extra test pytest tests/test_release_fixtures.py -q
 ```
 
@@ -127,7 +130,8 @@ uv run --project . python scripts/install_sparseread.py \
 安装脚本会写入：
 
 ```text
-/path/to/your/project/.opencode/plugins/sparseread.js
+/path/to/your/project/.opencode/plugins/sparseread.js       # V1
+/path/to/your/project/.opencode/plugins/sparseread/        # V2
 /path/to/your/project/.opencode/sparseread.json
 /path/to/your/project/.sparseread/runtime/opencode/
 ```
@@ -217,57 +221,10 @@ uv run --project . python scripts/install_sparseread.py --platform openclaw --do
 
 ## 安装到 NanoBot
 
-NanoBot 不需要 installer。`sparseread-core` 与 `sparseread-nanobot` 是普通
-Python 依赖，宿主 `nanobot-ai` 由用户自行安装（本仓库不随带框架源码）。
-`sparseread-nanobot` 通过官方 `AgentHook` + `ToolRegistry` 接入：
-`install(agent, ...)` 会注册 SRO 工具并自动挂载 `SparseReadHook`；hook 是
-鸭子类型实现，不 import 宿主模块，只在运行时依赖 nanobot 已安装。
-
-源码形态（monorepo 内开发/测试）：
-
-```bash
-uv pip install --python <你的 nanobot venv>/bin/python \
-  -e packages/sparseread-core \
-  -e integrations/nanobot/python
-```
-
-Windows PowerShell：
-
-```powershell
-uv pip install --python <你的 nanobot venv>\Scripts\python.exe `
-  -e packages\sparseread-core `
-  -e integrations\nanobot\python
-```
-
-发布形态（PyPI 就绪后）：
-
-```bash
-pip install "sparseread-core>=0.1,<0.2" "sparseread-nanobot>=0.1,<0.2"
-pip install "sparseread-nanobot[nanobot]"   # 可选：一并安装 nanobot-ai 宿主
-```
-
-接入方式：
-
-```python
-from sparseread_nanobot import install
-
-runtime = install(agent)   # 自动注册 sro_preview/sro_read/... 并挂 SparseReadHook
-```
-
-`SparseReadHook` 在 `before_execute_tools` 里对命中 gate 的原生
-`read_file/list_dir/grep` 改写为 `sro_handoff`（返回与旧宿主一致的引导消息），
-对 `exec` 大文件 dump 改写为 `sro_guard`，并记录 write provenance、在 turn 结束
-时结束 episode。模型可见引导由 adapter 内置（与旧宿主 SKILL.md 正文一致，以
-system 消息注入），不再依赖宿主 skill 文件。
-
-注意（双路径互斥）：若你安装的 `nanobot-ai` 版本在 `SRO_ENABLED=1` 时仍会
-自建 `_sro` 并注册同名 SRO 工具，生产 `AgentLoop` 用户二选一：
-
-- 用本 adapter：`SRO_ENABLED=0` + `install(agent)`（hook 路径）；
-- 用宿主内建 SRO：`SRO_ENABLED=1`，不再挂 adapter hook。
-
-基准验证形态是 `AgentRunner + ToolRegistry + hook` 直跑
-（`benchmarks/nanobot_sro_driver.py`），不经过 `AgentLoop` 内建路径。
+NanoBot 使用 `sparseread-core` 与 `sparseread-nanobot` Python 包，宿主由用户
+自行安装。官方 `nanobot-ai` 0.4.1 接口适配与验证正在进行；安装 API 和支持范围
+以候选冻结后的 [NanoBot adapter 指南](../integrations/nanobot/python/README.md)
+及验证矩阵为准。历史 0.3.x 论文结果不代表 0.4.1 验证完成。
 
 ## 安装到 Claude Code
 
@@ -294,8 +251,8 @@ uv run --project . python scripts/install_sparseread.py --platform claude --clau
   暴露 `sro_preview/sro_read/sro_card/sro_raw/sro_decide/sro_trace/
   sro_preflight/sro_usage` 8 个工具）；
 - 合并写入 `/path/to/your/project/.claude/settings.local.json`
-  （PreToolUse/PostToolUse session hook，拦截大文件 Read/Bash 并注入 SRO
-  上下文，大输出后追加 nudge）；
+  （逐事件 PreToolUse/PostToolUse hook；auto 模式仅可能转向符合条件的无界
+  Read 或单文件 cat，大输出提示使用 additionalContext，不替换原输出）；
 - 如果 workspace 还没有 `CLAUDE.md`，写入 SRO 使用协议模板。
 
 安装后重启 Claude Code（或新开会话）。验证：
@@ -305,11 +262,9 @@ cd /path/to/your/project
 claude "请自动使用 SparseRead 阅读长报告并回答问题"
 ```
 
-模型路由：正常使用自己的 Anthropic 账号即可。若要通过第三方 Anthropic
-兼容端点（如 Paratera 的 DeepSeek 模型）跑基准，可设置
-`ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`；仓库提供
-`benchmarks/sro_anthropic_proxy.py` 解决第三方网关缺少
-`GET /v1/models/{id}` 校验端点的问题，但这不是日常安装的一部分。
+模型和凭据由 Claude Code 用户自行管理。当前有限 DeepSeek 测试经临时协议转换，
+不是原生 Anthropic 后端资格或性能结论。MCP 工具授权与宿主原生 Read 的逐文件
+授权是不同合同；集合工具调用可读取目标目录中的多个文件。
 
 Windows 注意：同事在 Windows 11 上曾遇到 MCP stdio/SSE 连接问题；本仓库
 未在 Windows 上复验，发布前需要在目标机器上单独验证 `.mcp.json` 连接。
@@ -338,22 +293,12 @@ uv run --project . python scripts/install_sparseread.py \
 `--platform both` 目前等价于 OpenCode + OpenClaw。Claude Code 需要单独再执行
 一次 `--platform claude`；NanoBot 走 Python 依赖安装，与 CLI 安装互不影响。
 
-## 框架行为差异（有意设计）
+## 框架行为与权限边界
 
-四个框架共享同一个 core gate（`force_sro/native/advisory` + episode hint），
-但桥接面能力不同，因此存在以下有意差异，不是缺陷：
-
-| 框架 | enforce 下限 | 决策码白名单 | allow_bounded_text_verify | guard_cards_after_ready | native passthrough 搜索放行 |
-| --- | --- | --- | --- | --- | --- |
-| NanoBot | core 默认（4KB 文档） | 无 adapter 白名单 | 不适用（直接工具注册） | 不适用 | 不适用 |
-| OpenCode | core 默认 | 无 adapter 白名单 | ✅ True | ❌ False | ❌ |
-| OpenClaw | core 默认 | 无 adapter 白名单 | ❌ False | ✅ True | ✅ True |
-| Claude Code | 文本 12KB（`CLAUDE_TEXT_ENFORCE_BYTES`） | `long_document`/`long_document_selective`/`collection_long_document`/`multi_file_evidence`/`structured_analysis_plan`；白名单外 force_sro 降级 advisory | ❌ False | ✅ True | ❌ |
-
-含义：同一 core 的 `force_sro` 决策在 Claude 上可能因 12KB 下限或决策码不在
-白名单而变成 advisory；OpenClaw 的 native passthrough 会额外放行搜索类字段；
-OpenCode 允许有界的 ready 后 verify。发布文档以此矩阵为准，避免用户在不同
-框架上观察到不一致行为时误判为 bug。
+不同适配器的 hook、权限、会话和回退机制不同；请以各自 README 和
+[验证矩阵](framework_upgrade_20261114/validation-summary.md)为准。Claude 的
+advisory 不拦截原生读取，OpenCode V2 对集合逐源检查宿主权限，Codex 的项目
+信任与 hook 信任分开。原生读取、显式验证和适用时的回退仍可用。
 
 ## Doctor 检查
 
@@ -373,11 +318,11 @@ uv run --project . python scripts/install_sparseread.py --platform openclaw --do
 uv run --project . python scripts/install_sparseread.py --platform claude --doctor-only
 ```
 
-doctor 会做两层检查：
+doctor 检查范围因框架不同；其结果不能自动证明真实模型激活或宿主权限已批准：
 
 - bridge smoke：先校验 bridge protocol `1.0`，再用临时 markdown fixture 验证 `sro_preview` 能返回 FileCard 和 L0 预览；
 - 已安装集成检查：
-  - OpenCode 验证 `.opencode/plugins/sparseread.js`、`.opencode/sparseread.json` 和受管 Python runtime；
+  - OpenCode 根据 V1/V2 验证对应入口、配置和受管 runtime；V2 doctor 使用隔离宿主与确定性 provider 测试 preview；
   - OpenClaw 验证 `plugins inspect --runtime --json` 中的 SparseRead 工具面；默认 `auto` 下还会检查拦截 hook 已注册，`advisory` 下会检查没有 native tool 拦截 hook。
   - Claude Code 验证 `sparseread_claude.bridge` 的 protocol smoke（与
     OpenCode/OpenClaw 同一套 bridge 校验），并检查受管 Python runtime 存在。
@@ -408,7 +353,7 @@ agent 内部会按生产协议工作：先做 L0 preview；如果 preview 不够
 
 ## 快速体验测试
 
-本仓库提供了一个长 markdown fixture：
+完整 git checkout 提供了一个长 markdown fixture；源码安装归档不包含此 fixture：
 
 ```text
 tests/fixtures/quick_test/incident-report.md
@@ -438,7 +383,7 @@ FINAL_DEADLINE: 2026-07-18 09:30 UTC.
 
 ## 版本发布前固定测试
 
-每次版本更新都至少跑：
+在完整 git checkout 中，每次版本更新至少跑（源码安装归档不包含 tests）：
 
 ```bash
 PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integrations/opencode/python/src:integrations/openclaw/python/src:integrations/claude/python/src" \

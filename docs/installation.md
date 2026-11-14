@@ -23,6 +23,9 @@ PDF/XLSX reader dependencies are installed by default; use
 
 ## Verify a checkout
 
+The following tests require a full git checkout; the source installer archive
+intentionally omits tests and benchmark fixtures.
+
 ```bash
 git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
@@ -44,8 +47,10 @@ On PowerShell, replace the `:` separators in `PYTHONPATH` with `;`.
 
 Codex or Pi (project-scoped):
 
-Download the `v0.1.3` source-installer ZIP/tar.gz from GitHub Releases and extract
-it; the `v0.1.1` installer does not include these adapters.
+Use a checkout containing the desired adapter changes. The historical
+[`v0.1.3` tagged source archive](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip)
+includes the earlier Codex/Pi adapters but not this upgrade; original release
+attachments were not migrated. No new release has been published in this batch.
 
 ```bash
 uv run --python 3.12 python scripts/install_sparseread.py \
@@ -101,7 +106,8 @@ uv pip install \
   integrations/nanobot/python
 ```
 
-The NanoBot host loads `sparseread-nanobot` through its adapter entry point.
+NanoBot 0.4.1 compatibility for the current candidate is still under
+validation; historical paper results do not establish that host version.
 
 ## Modes
 
@@ -124,6 +130,9 @@ protocol.
   host permissions. See `integrations/claude/README.md` for workspace, shell,
   collection and platform limits.
 - NanoBot uses `sparseread-core` and `sparseread-nanobot` as Python dependencies.
+
+For current candidate host versions and evidence boundaries, see the
+[validation matrix](framework_upgrade_20261114/validation-summary.md).
 
 For architecture and package ownership, see
 [`docs/release_architecture.md`](release_architecture.md). For the Chinese

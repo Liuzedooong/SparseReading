@@ -177,3 +177,22 @@ def test_source_installer_checks_committed_metadata_not_working_tree(tmp_path: P
         build_source_installer(repo, output, "v0.1.2")
 
     assert not output.exists()
+
+
+def test_source_installer_user_guide_links_are_included() -> None:
+    """Packaged entry guides must not point at checkout-only local files."""
+    import re
+    allowed = [(ROOT / path).resolve() for path in SOURCE_PATHS]
+    guides = (
+        "README.md", "README.zh-CN.md", "docs/installation.md", "docs/sparseread_installation.md",
+        "docs/codex-pi-adapters.md", "docs/framework_upgrade_20261114/validation-summary.md",
+        "integrations/claude/README.md",
+    )
+    for name in guides:
+        doc = ROOT / name
+        for link in re.findall(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", doc.read_text(encoding="utf-8")):
+            if "://" in link or link.startswith("#"):
+                continue
+            target = (doc.parent / link.split("#", 1)[0]).resolve()
+            assert target.exists(), (name, link)
+            assert any(target == path or (path.is_dir() and target.is_relative_to(path)) for path in allowed), (name, link)

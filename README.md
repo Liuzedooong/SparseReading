@@ -22,7 +22,7 @@ fallbacks explicit.
 - **2026-09-14:** Support for Claude Code, OpenCode, OpenClaw, and NanoBot.
 
 <p align="center">
-  <img src="assets/launch/sparseread-demo-wide.gif" alt="SparseRead replay: full read vs sparse evidence, then the cost-quality frontier" width="100%">
+  <img src="https://raw.githubusercontent.com/Liuzedooong/SparseReading/main/assets/launch/sparseread-demo-wide.gif" alt="SparseRead replay: full read vs sparse evidence, then the cost-quality frontier" width="100%">
 </p>
 
 Agents are good at reasoning, but their default reading action is often still:
@@ -69,25 +69,37 @@ reader backends in three frameworks:
 
 | Framework | Adapter | Median token reduction | Median time saving | Paper status |
 |---|---|---:|---:|---|
-| [NanoBot](integrations/nanobot/) | `sparseread-nanobot` | **69.0%** | **64.4%** | Evaluated |
-| [OpenCode](integrations/opencode/) | `sparseread-opencode` | **71.8%** | **64.9%** | Evaluated |
-| [OpenClaw](integrations/openclaw/) | `sparseread-openclaw` | **28.7%** | **28.2%** | Evaluated |
-| [Claude Code](integrations/claude/) | `sparseread-claude` | — | — | Supported in this release |
+| [NanoBot](integrations/nanobot/python/README.md) | `sparseread-nanobot` | **69.0%** | **64.4%** | Evaluated |
+| [OpenCode](integrations/opencode/README.md) | `sparseread-opencode` | **71.8%** | **64.9%** | Evaluated |
+| [OpenClaw](integrations/openclaw/README.md) | `sparseread-openclaw` | **28.7%** | **28.2%** | Evaluated |
+| [Claude Code](integrations/claude/README.md) | `sparseread-claude` | — | — | Source adapter; not paper-benchmarked |
 | [Codex](docs/codex-pi-adapters.md) | MCP + plugin hooks/skill | — | — | Source adapter; not paper-benchmarked |
 | [Pi](docs/codex-pi-adapters.md) | `@sparseread/pi` extension | — | — | Source adapter; not paper-benchmarked |
 
-Claude Code uses MCP plus `PreToolUse`/`PostToolUse` session hooks rather than
+Claude Code uses MCP plus per-event `PreToolUse`/`PostToolUse` hooks rather than
 an npm plugin. The local Claude Code validation report is available at
-[`benchmarks/qwenclawbench/claude_final_aggregate_20260805.md`](benchmarks/qwenclawbench/claude_final_aggregate_20260805.md);
+[`benchmarks/qwenclawbench/claude_final_aggregate_20260805.md`](https://github.com/Liuzedooong/SparseReading/blob/v0.1.3/benchmarks/qwenclawbench/claude_final_aggregate_20260805.md);
 it is not part of the three-framework table in the paper.
+
+### Current source candidate validation
+
+The local candidate has host-level deterministic checks on macOS arm64 for
+OpenCode 2.3.0 (and V1 1.17.14/1.19.5), Claude Code 2.1.325, and Codex CLI
+0.169.0. Limited DeepSeek workflows activated the OpenCode, Claude and Codex paths;
+Claude and Codex used test-only wire adapters, and the Claude model workflow
+used an earlier candidate.
+NanoBot 0.4.1 qualification and the final integrated release archive remain in
+progress; Pi and OpenClaw require final-candidate regression. Windows, Desktop,
+remote environments and performance gains for these upgraded adapters are not
+established by those checks. See the [validation matrix](docs/framework_upgrade_20261114/validation-summary.md).
 
 ## Install
 
-The current release baseline is a source-install release. It builds a managed
-runtime for the selected framework, so the installed integration does not
-import from this checkout at runtime.
+The source installer builds a managed runtime for the selected framework, so
+the installed integration does not import from this checkout at runtime. The
+current upgrade is a local candidate and has not been published as a release.
 
-Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22+
+Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), a current patched Node.js 22 or newer
 for OpenCode/OpenClaw/Codex/Pi, and the target agent CLI.
 
 The installer validates the selected Python before changing a workspace. If the
@@ -99,7 +111,7 @@ and `--reader-extras none` is available for text-only installations.
 git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 
-# Verify the core, adapters, bridge protocol, and release fixture first.
+# In a full git checkout (tests are not included in the source installer archive):
 PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integrations/opencode/python/src:integrations/openclaw/python/src:integrations/claude/python/src" \
   uv run --project . --extra test pytest tests/test_release_fixtures.py -q
 ```
@@ -108,9 +120,10 @@ Choose one integration:
 
 Codex and Pi use the same core with project-scoped frontend adapters:
 
-Codex and Pi are included in v0.1.3. Clone this repository or download
-the [v0.1.3 tagged source archive](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip).
-Original release attachments were not migrated; run the installer from the source root.
+Codex and Pi are included in the historical v0.1.3 tag. For the candidate
+changes described above, use a checkout containing those changes; the
+[v0.1.3 tagged source archive](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip)
+does not contain this upgrade. Original release attachments were not migrated.
 
 ```bash
 uv run --python 3.12 python scripts/install_sparseread.py \
@@ -138,7 +151,7 @@ uv run --project . python scripts/install_sparseread.py \
   --platform openclaw \
   --doctor
 
-# Claude Code: install MCP and session hooks into a workspace
+# Claude Code: install MCP and per-event hooks into a workspace
 uv run --project . python scripts/install_sparseread.py \
   --platform claude \
   --claude-workspace /path/to/your/project \
@@ -162,14 +175,14 @@ to answer the question, then stop reading once the evidence is sufficient.
 
 ### Quick test
 
-The repository includes a small long-document fixture:
+A full git checkout includes a small long-document fixture; the source installer archive does not:
 
 ```bash
 opencode run "Use SparseRead to inspect tests/fixtures/quick_test/incident-report.md and report ROOT_CAUSE, MITIGATION_OWNER, and FINAL_DEADLINE."
 ```
 
-The same request works in an OpenClaw, Claude Code, or NanoBot session after the
-corresponding adapter is installed.
+Other adapters can expose the same request; see the validation matrix for
+what has been exercised on the current candidate.
 
 ## How it works
 
@@ -209,6 +222,8 @@ not fork the reading protocol.
 
 ## Development
 
+The following test commands require a full git checkout; installer archives omit tests and benchmarks.
+
 Run the core suite independently:
 
 ```bash
@@ -239,18 +254,17 @@ integration.
 
 ## Release scope and limitations
 
-- The current release is `v0.1.3` and is installable from source bundles.
+- `v0.1.3` is a historical source tag; this candidate is not yet a new release.
 - PyPI, npm, and official framework-marketplace publishing are not wired yet;
   the source installer is the supported distribution path today.
-- Claude Code is supported through MCP and session hooks. Its Windows MCP path
-  still needs separate verification in environments where the host CLI or
-  permissions differ.
+- The Claude candidate uses MCP and per-event hooks; its Windows and PowerShell
+  paths have not been independently qualified in this batch.
 - SparseRead is selective by design. Native access remains the right choice for
   small files, exact full-table computation, and other low-sparsity tasks.
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Please read [CONTRIBUTING.md](https://github.com/Liuzedooong/SparseReading/blob/main/CONTRIBUTING.md) before opening a pull request.
 Bug reports and focused integration feedback are welcome.
 
 ## Citation

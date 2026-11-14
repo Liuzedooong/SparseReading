@@ -41,7 +41,7 @@ runtime = install(agent)`,
   {
     id: "claude",
     label: "Claude Code",
-    hint: "Merges MCP tools and session hooks into the workspace. Restart Claude Code after install.",
+    hint: "Merges MCP tools and per-event hooks into the workspace. Restart Claude Code after install.",
     code: `uv run --project . python scripts/install_sparseread.py \\
   --platform claude \\
   --claude-workspace /path/to/your/project \\

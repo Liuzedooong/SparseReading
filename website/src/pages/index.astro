@@ -51,7 +51,7 @@ const faqs: { q: string; a: string; claimId?: string }[] = [
   },
   {
     q: "Which agents does SparseRead support?",
-    a: "NanoBot, OpenCode, OpenClaw, and Claude Code. One token-efficient reading runtime; four harness adapters.",
+    a: "The source tree has NanoBot, OpenCode, OpenClaw, Claude Code, Codex, and Pi adapters. Validation varies by host version and platform; see the repository validation matrix.",
   },
   {
     q: "How do I install it?",
@@ -151,8 +151,8 @@ const harnesses = [
   {
     id: "claude" as const,
     name: "Claude Code",
-    version: "2.1.252",
-    line: "MCP + session hooks · GitHub release",
+    version: "2.1.325 candidate",
+    line: "MCP + per-event hooks · macOS validation",
   },
 ];
 const harnessLoop = [...harnesses, ...harnesses, ...harnesses];
@@ -293,10 +293,11 @@ const [taglineLead, taglineStop] = glossary.tagline.split(/(?<=\.)\s+/);
       <h2>Same protocol, four harnesses</h2>
       <p>
         SparseRead is a thin adapter around one token-efficient reading runtime, not a new agent.
-        The paper evaluates NanoBot, OpenCode, and OpenClaw. Claude Code ships in the GitHub release.
-        Token savings are real and not uniform.
+        The paper evaluates NanoBot, OpenCode, and OpenClaw at the versions shown below.
+        Claude Code 2.1.325 has candidate host validation; the upgrade has not yet been released.
+        NanoBot 0.4.1 qualification remains in progress. Token savings are not uniform.
       </p>
-      <div class="harness-strip" data-claim-id={tab1.id} aria-label="Supported harnesses">
+      <div class="harness-strip" data-claim-id={tab1.id} aria-label="Paper harnesses and candidate adapters">
         <div class="harness-track">
           {harnessLoop.map((item, index) => (
             <div class="harness-card" aria-hidden={index >= harnesses.length}>
@@ -502,7 +503,7 @@ cd SparseReading`}
           models {setup.models.join(", ")})
         </span>;
         frameworks {setup.frameworks.map((item) => `${item.name} ${item.version}`).join(", ")}.
-        Claude Code 2.1.252 is a fourth GitHub-release integration, not a paper Table 1 row.
+        Claude Code is not a paper Table 1 row. The 2.1.325 candidate has separate macOS host validation; it is not a new published release.
       </p>
       <p>
         This checkout can replay the recorded Figure 8 flagship / multi-file audit / force-mode boundary packets

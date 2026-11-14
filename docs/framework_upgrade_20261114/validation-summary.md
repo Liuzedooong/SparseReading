@@ -1,0 +1,30 @@
+# Framework validation matrix — working candidate, 2026-11-14
+
+This matrix tracks the **local source candidate**, not a published version.
+The historical `v0.1.3` tag predates these changes; development artifacts that
+still carry `0.1.3` must not be confused with that tag. No new tag, GitHub
+release, registry package or hosted website update has been published in this
+batch. Prior paper measurements describe their original implementations and
+workloads, not the upgraded adapters below.
+
+All host results here are limited to the tested **macOS arm64** environment and
+listed versions. A deterministic provider exercises host protocols but is not
+an actual-model quality test. A single synthetic model workflow establishes
+activation for that candidate only; no paired performance comparison is
+claimed. CI configuration in the tree does not itself establish a passing
+remote CI run.
+
+| Component / target | Actual host and deterministic evidence | Actual model evidence | Artifact boundary and remaining work |
+| --- | --- | --- | --- |
+| Core | `133e93d`: identity, same-size source change, session separation, workspace paths, source manifest, invalidation, raw/verification and bounded collection tests; 290 source tests and 31 isolated-wheel tests at that checkpoint. | Not a model host by itself. | Isolated development core wheel SHA-256 `87ea92c3367a659c07eee6bbc66178c7b837dd038795c2fe4eb9fde9441b8d32`; final versioned package pending. Source checks and opening are not an atomic filesystem sandbox. [Core evidence](core-implementation.md). |
+| OpenCode V2 target **2.3.0** | Official 2.3.0 host: five-tool registration, source and collection permissions, Code Mode, session isolation, cancellation and bridge recovery. V1 **1.17.14** and **1.19.5** separately exercised through their real hosts with a scripted provider. | One synthetic `deepseek-flash` workflow on 2.3.0 exercised native read → preview → focused read and returned `CAPRI-913`; not a performance comparison. The available Paratera credentials returned blocked/401; that route remains unqualified. | Core/OpenCode runtime/build files matched `6cdc877` in that model candidate, while three installer/documentation files differed. Independent [packaging review](packaging-review.md) tested the `6cdc877` source archive and npm package; it is not the final integrated archive. See [OpenCode implementation](opencode-implementation.md). |
+| Claude Code target **2.1.325** | Official 2.1.325: hook deny and native retry, bounded and host-denied reads, MCP discovery/error behavior, mode reinstall and rollback; eight MCP tools also exercised over stdio. | One `deepseek-flash` workflow used a test-only Messages-to-Chat wire converter and exercised preview → focused read → `CAPRI-913` over three requests (13,228 prompt plus output tokens; cache is included in prompt). This is not an Anthropic-native backend qualification. | Model run used an earlier candidate; final installer, whitespace-path and trace changes were separately tested deterministically. Final candidate Claude wheel SHA-256 `441e2dbad462de11bb4ff0cfd8b49cd32eba163b5295e38b045283683f61ee39`; final integrated archive pending. [Claude evidence](claude-implementation.md). |
+| Codex CLI target **0.169.0** | Official 0.169.0: project trust separation, six MCP tools, Unicode/stale/source-change/workspace checks, one-time `cat` handoff and native retry, fork, `write_stdin`, mode reinstall and changed-hook state. Hook trust remains separate from installation. | A corrected `deepseek-flash` compatibility-wire run invoked preview → focused read and returned `CAPRI-913`: three requests, 32,114 input tokens (25,728 cached input is a subset) and 245 output, total 32,359. Earlier unsuccessful requests remain in the verifier's record. | Source candidate integrated as `a5ca820`; final versioned source archive pending. CLI validation does not establish Desktop, Cloud or Web compatibility. [Codex evidence](codex-implementation.md). |
+| NanoBot target **0.4.1** | Implementation and independent host verification in progress. Historical paper measurements are not qualification of 0.4.1. | Pending. | No 0.4.1 support claim until the candidate and host evidence are frozen. |
+| Pi and OpenClaw | Existing source adapters and prior evidence remain; current integrated-candidate regression is pending. | No new model result claimed. | Final release checks must include their installed/runtime regressions, not just core and newer adapters. |
+
+See also the independent OpenCode host record at
+`/Users/captainliu/sparse-reading/docs/framework_upgrade_20261114/validation/opencode-host-validation.md`
+and the Claude/Codex verifier's preserved fixture logs; those paths are local
+evidence, not portable runtime dependencies. This matrix should be updated
+when the NanoBot and final release-artifact gates finish. The checked-in reports preserve earlier failures and superseded hashes.
