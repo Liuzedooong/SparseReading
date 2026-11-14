@@ -8,7 +8,7 @@ framework. It does not require a framework checkout at runtime.
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/)
-- Node.js 22+ for OpenCode/OpenClaw/Codex/Pi; npm for OpenCode/OpenClaw builds
+- A current patched Node.js 22 or newer for OpenCode/OpenClaw/Codex/Pi; npm for OpenCode/OpenClaw builds
 - Git
 - An installed OpenCode, OpenClaw, Claude Code, NanoBot, Codex, or Pi host
 
@@ -68,6 +68,13 @@ uv run --project . python scripts/install_sparseread.py \
   --opencode-workspace /path/to/your/project \
   --doctor
 ```
+
+The installer detects OpenCode major version and selects the matching V1 or V2
+entry. Host-level scripted checks cover 1.17.14, 1.19.5, and 2.3.0 on macOS;
+other versions and operating systems need separate validation. V2 `--doctor`
+starts an isolated local host and deterministic provider to exercise a synthetic
+preview. This validates host registration and invocation, not real-model task
+quality or performance. Remote workspaces are not supported by the local bridge.
 
 OpenClaw:
 

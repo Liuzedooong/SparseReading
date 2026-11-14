@@ -37,6 +37,7 @@ jobs:
         run: |
           npm ci
           npm run build
+          npm test
       - name: Build OpenClaw plugin
         working-directory: integrations/openclaw/plugin
         run: |
@@ -59,6 +60,14 @@ jobs:
           done
           uv build --project integrations/agent-tools/python --out-dir dist
           ls -la dist
+      - name: Exercise installed OpenCode 2.3.0 host
+        run: |
+          npm install --prefix "$RUNNER_TEMP/opencode-v2" --no-audit --no-fund @opencode/cli@2.3.0
+          workspace="$(mktemp -d)"
+          uv run --no-project --python 3.12 python scripts/install_sparseread.py \
+            --platform opencode --opencode-workspace "$workspace" \
+            --opencode-cmd "$RUNNER_TEMP/opencode-v2/node_modules/.bin/opencode" \
+            --reader-extras none --skip-build --doctor
       - name: Test installed Pi wheel runtime
         env:
           PI_CODING_AGENT_DIR: ${{ runner.temp }}/sparseread-pi-ci-home

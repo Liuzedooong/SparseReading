@@ -66,6 +66,20 @@ jobs:
             --reader-extras none --doctor
           SPARSEREAD_PI_RUNTIME_FILE="$pi_smoke_root/.sparseread/pi/sparseread-pi/.sparseread-runtime.json" \
             npm --prefix integrations/pi/package test
+      - name: Test OpenCode npm package and source archive
+        run: |
+          consumer="$(mktemp -d)"
+          version="${GITHUB_REF_NAME#v}"
+          npm install --prefix "$consumer" --ignore-scripts --legacy-peer-deps --no-audit --no-fund "$GITHUB_WORKSPACE/dist/sparseread-opencode-$version.tgz"
+          (cd "$consumer" && node --input-type=module -e 'const v1 = await import("@sparseread/opencode"); const v2 = await import("@sparseread/opencode/v2"); if (typeof v1.default !== "function" || v2.default?.id !== "sparseread") process.exit(1)')
+          npm install --prefix "$RUNNER_TEMP/opencode-v2" --no-audit --no-fund @opencode/cli@2.3.0
+          source_root="$(mktemp -d)"
+          unzip -q "$GITHUB_WORKSPACE/dist/sparseread-source-installer-$GITHUB_REF_NAME.zip" -d "$source_root"
+          workspace="$(mktemp -d)"
+          uv run --no-project --python 3.12 python "$source_root/sparseread-$GITHUB_REF_NAME/scripts/install_sparseread.py" \
+            --platform opencode --opencode-workspace "$workspace" \
+            --opencode-cmd "$RUNNER_TEMP/opencode-v2/node_modules/.bin/opencode" \
+            --reader-extras none --doctor
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

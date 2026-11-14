@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -387,8 +389,19 @@ def opencode_workspace_paths(workspace: Path) -> tuple[Path, Path]:
     return workspace / ".opencode" / "plugins" / "sparseread.js", workspace / ".opencode" / "sparseread.json"
 
 
-def validate_opencode_workspace(workspace: Path) -> None:
+def opencode_major(command: str) -> int:
+    spec = command_spec(command)
+    result = run(spec.argv("--version"), check=False)
+    match = re.search(r"(?<!\d)(\d+)\.\d+\.\d+", result.stdout)
+    if result.returncode or not match or int(match.group(1)) not in (1, 2):
+        raise SystemExit("Cannot determine a supported OpenCode major version (1 or 2).")
+    return int(match.group(1))
+
+
+def validate_opencode_workspace(workspace: Path, major: int = 1) -> None:
     plugin_target, config_target = opencode_workspace_paths(workspace)
+    if major == 2:
+        plugin_target = plugin_target.parent / "sparseread" / "package.json"
     if not plugin_target.exists():
         raise SystemExit(f"OpenCode plugin file is missing: {plugin_target}")
     if not config_target.exists():
@@ -507,9 +520,29 @@ def install_python_runtime(
     python: str,
     dry_run: bool,
     reader_extras: str = "all",
+    upgrade_existing: bool = False,
+    upgrade_backup: Path | None = None,
 ) -> Path:
     if reader_extras not in {"all", "none"}:
         raise SystemExit(f"invalid reader extras selection: {reader_extras}")
+    if upgrade_existing and runtime_dir.exists() and not dry_run:
+        if runtime_dir.is_symlink() or not (runtime_dir / "pyvenv.cfg").is_file():
+            raise SystemExit(f"Refusing to replace unmanaged runtime: {runtime_dir}")
+        resolved_python = Path(shutil.which(python) or python).resolve()
+        if resolved_python.is_relative_to(runtime_dir.resolve()):
+            raise SystemExit("Select a Python interpreter outside the OpenCode runtime being upgraded")
+        python = str(resolved_python)
+        with tempfile.TemporaryDirectory(prefix=".sparseread-runtime-", dir=runtime_dir.parent) as temporary:
+            backup = upgrade_backup or Path(temporary) / "old"
+            runtime_dir.rename(backup)
+            try:
+                install_python_runtime(runtime_dir, adapter, python=python, dry_run=False, reader_extras=reader_extras)
+            except BaseException:
+                if runtime_dir.exists():
+                    shutil.rmtree(runtime_dir)
+                backup.rename(runtime_dir)
+                raise
+        return runtime_python(runtime_dir)
     uv_cmd = command_spec("uv", install_hint="Install uv first: https://docs.astral.sh/uv/")
     managed_python = runtime_python(runtime_dir)
     run(uv_cmd.argv("venv", str(runtime_dir), "--python", python), dry_run=dry_run)
@@ -721,28 +754,182 @@ def install_opencode_plugin_file(plugin_target: Path, *, dry_run: bool) -> None:
     dist_file = OPENCODE_PLUGIN / "dist" / "sparseread.js"
     if not dry_run:
         plugin_target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(dist_file, plugin_target)
+        if plugin_target.exists():
+            text = plugin_target.read_text(encoding="utf-8")
+            if "SparseReadOpenCodePlugin" not in text and "sparseread_opencode.bridge" not in text:
+                raise SystemExit(f"Refusing to overwrite unmanaged plugin: {plugin_target}")
+        transport = plugin_target.parent / ".sparseread-transport"
+        transport.mkdir(exist_ok=True)
+        existing_transport = transport / "transport.js"
+        if existing_transport.exists() and "SparseReadBridge" not in existing_transport.read_text(encoding="utf-8"):
+            raise SystemExit(f"Refusing to overwrite unmanaged transport: {existing_transport}")
+        with tempfile.NamedTemporaryFile(prefix=".transport-", suffix=".js", dir=transport, delete=False) as staged_transport:
+            temporary_transport = Path(staged_transport.name)
+        try:
+            shutil.copy2(OPENCODE_PLUGIN / "dist" / ".sparseread-transport" / "transport.js", temporary_transport)
+            temporary_transport.replace(existing_transport)
+        finally:
+            temporary_transport.unlink(missing_ok=True)
+        with tempfile.NamedTemporaryFile(prefix=".sparseread-", suffix=".js", dir=plugin_target.parent, delete=False) as staged:
+            temporary = Path(staged.name)
+        try:
+            shutil.copy2(dist_file, temporary)
+            temporary.replace(plugin_target)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def install_opencode_v2(plugin_target: Path, *, dry_run: bool) -> None:
+    if dry_run:
+        return
+    plugins = plugin_target.parent
+    plugins.mkdir(parents=True, exist_ok=True)
+    target = plugins / "sparseread"
+    if target.exists():
+        manifest = target / "package.json"
+        if not manifest.is_file() or read_json(manifest).get("name") != "sparseread-opencode-v2":
+            raise SystemExit(f"Refusing to overwrite unmanaged plugin directory: {target}")
+    if plugin_target.exists():
+        legacy = plugin_target.read_text(encoding="utf-8")
+        if "SparseReadOpenCodePlugin" not in legacy and "sparseread_opencode.bridge" not in legacy:
+            raise SystemExit(f"Refusing to replace unmanaged plugin: {plugin_target}")
+    with tempfile.TemporaryDirectory(prefix=".sparseread-install-", dir=plugins) as temporary:
+        stage = Path(temporary) / "new"
+        stage.mkdir()
+        shutil.copy2(OPENCODE_PLUGIN / "dist" / "v2.js", stage / "v2.js")
+        shutil.copytree(OPENCODE_PLUGIN / "dist" / ".sparseread-transport", stage / ".sparseread-transport")
+        sdk = stage / "node_modules" / "@opencode" / "plugin"
+        sdk.parent.mkdir(parents=True)
+        shutil.copytree(OPENCODE_PLUGIN / "node_modules" / "@opencode" / "plugin", sdk)
+        version = read_json(OPENCODE_PLUGIN / "package.json")["version"]
+        write_json(stage / "package.json", {"name": "sparseread-opencode-v2", "version": version, "type": "module", "exports": {".": "./v2.js"}})
+        backup = Path(temporary) / "old"
+        if target.exists():
+            target.rename(backup)
+        try:
+            stage.rename(target)
+            if plugin_target.exists():
+                plugin_target.unlink()
+        except BaseException:
+            if target.exists():
+                shutil.rmtree(target)
+            if backup.exists():
+                backup.rename(target)
+            raise
+
+
+def validate_opencode_targets(workspace: Path) -> None:
+    """Reject symlink redirection and collisions before changing managed files."""
+    relative_paths = (
+        ".opencode", ".opencode/plugins", ".opencode/plugins/sparseread.js",
+        ".opencode/plugins/sparseread", ".opencode/plugins/.sparseread-transport",
+        ".opencode/plugins/.sparseread-transport/transport.js", ".opencode/sparseread.json",
+        ".sparseread", ".sparseread/runtime", ".sparseread/runtime/opencode",
+    )
+    for relative in relative_paths:
+        target = workspace / relative
+        if target.is_symlink():
+            raise SystemExit(f"Refusing symlink in OpenCode installation path: {target}")
+    legacy, _ = opencode_workspace_paths(workspace)
+    if legacy.exists() and (not legacy.is_file() or not any(marker in legacy.read_text(encoding="utf-8") for marker in ("SparseReadOpenCodePlugin", "sparseread_opencode.bridge"))):
+        raise SystemExit(f"Refusing to replace unmanaged plugin: {legacy}")
+    v2 = legacy.parent / "sparseread"
+    if v2.exists():
+        manifest = v2 / "package.json"
+        if not v2.is_dir() or manifest.is_symlink() or not manifest.is_file() or read_json(manifest).get("name") != "sparseread-opencode-v2":
+            raise SystemExit(f"Refusing to replace unmanaged plugin: {v2}")
+    transport = legacy.parent / ".sparseread-transport" / "transport.js"
+    if transport.exists() and (not transport.is_file() or "SparseReadBridge" not in transport.read_text(encoding="utf-8")):
+        raise SystemExit(f"Refusing to replace unmanaged transport: {transport}")
 
 
 def install_opencode(args: argparse.Namespace) -> None:
     profile = install_profile(args)
     workspace = Path(args.opencode_workspace or os.getcwd()).expanduser().resolve()
-    plugin_target, config_target = opencode_workspace_paths(workspace)
-    command_spec(args.opencode_cmd)
+    legacy, config_target = opencode_workspace_paths(workspace)
+    v2_target = legacy.parent / "sparseread"
+    transport = legacy.parent / ".sparseread-transport" / "transport.js"
+    runtime = opencode_runtime_dir(workspace)
+    major = opencode_major(args.opencode_cmd)
+    validate_opencode_targets(workspace)
     if not args.skip_build:
         npm_install_and_build(OPENCODE_PLUGIN, dry_run=args.dry_run)
-    managed_python = install_python_runtime(
-        opencode_runtime_dir(workspace),
-        OPENCODE_ADAPTER,
-        python=getattr(args, "python", None) or sys.executable,
-        dry_run=args.dry_run,
-        reader_extras=getattr(args, "reader_extras", "all"),
-    )
-    install_opencode_plugin_file(plugin_target, dry_run=args.dry_run)
-    print(f"[opencode] install workspace: {workspace}")
-    if not args.dry_run:
+    if args.dry_run:
+        install_python_runtime(runtime, OPENCODE_ADAPTER, python=getattr(args, "python", None) or sys.executable, dry_run=True, reader_extras=getattr(args, "reader_extras", "all"))
+        return
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    transaction = Path(tempfile.mkdtemp(prefix=".sparseread-rollback-", dir=runtime.parent))
+    keep_backup = False
+    runtime_existed = runtime.exists()
+    previous_config = config_target.exists()
+    previous_legacy = legacy.exists()
+    previous_transport = transport.exists()
+    previous_v2 = v2_target.exists()
+    config_changed = False
+    plugin_changed = False
+    try:
+        for present, source, name in ((previous_config, config_target, "config"), (previous_legacy, legacy, "legacy"), (previous_transport, transport, "transport")):
+            if present:
+                shutil.copy2(source, transaction / name)
+        if previous_v2:
+            shutil.copytree(v2_target, transaction / "plugin", symlinks=True)
+        managed_python = install_python_runtime(
+            runtime, OPENCODE_ADAPTER, python=getattr(args, "python", None) or sys.executable,
+            dry_run=False, reader_extras=getattr(args, "reader_extras", "all"),
+            upgrade_existing=True, upgrade_backup=transaction / "runtime")
         config_target.parent.mkdir(parents=True, exist_ok=True)
-        write_json(config_target, opencode_workspace_config(workspace, managed_python, profile.policy, profile.mode))
+        settings = read_json(config_target) if previous_config else {}
+        settings.update(opencode_workspace_config(workspace, managed_python, profile.policy, profile.mode))
+        config_changed = True
+        write_json(config_target, settings)
+        if previous_config:
+            config_target.chmod((transaction / "config").stat().st_mode)
+        plugin_changed = True
+        if major == 2:
+            install_opencode_v2(legacy, dry_run=False)
+            plugin_target = v2_target
+        else:
+            if v2_target.exists():
+                shutil.rmtree(v2_target)
+            install_opencode_plugin_file(legacy, dry_run=False)
+            plugin_target = legacy
+        if getattr(args, "doctor", False):
+            doctor_opencode(args)
+    except BaseException as original:
+        try:
+            if config_changed:
+                if previous_config:
+                    (transaction / "config").replace(config_target)
+                else:
+                    config_target.unlink(missing_ok=True)
+            if plugin_changed:
+                if previous_legacy:
+                    (transaction / "legacy").replace(legacy)
+                else:
+                    legacy.unlink(missing_ok=True)
+                if previous_transport:
+                    (transaction / "transport").replace(transport)
+                else:
+                    transport.unlink(missing_ok=True)
+                if v2_target.exists():
+                    shutil.rmtree(v2_target)
+                if previous_v2:
+                    (transaction / "plugin").rename(v2_target)
+            backup = transaction / "runtime"
+            if backup.exists():
+                if runtime.exists():
+                    shutil.rmtree(runtime)
+                backup.rename(runtime)
+            elif not runtime_existed and runtime.exists():
+                shutil.rmtree(runtime)
+        except BaseException as rollback_error:
+            keep_backup = True
+            raise RuntimeError(f"OpenCode installation failed and rollback failed; backups retained at {transaction}: {rollback_error}") from original
+        raise
+    finally:
+        if not keep_backup:
+            shutil.rmtree(transaction)
+    print(f"[opencode] install workspace: {workspace}")
     print(f"[opencode] plugin: {plugin_target}")
     print(f"[opencode] config: {config_target}")
     print("[opencode] launch with: opencode run ...")
@@ -897,20 +1084,37 @@ def bridge_smoke(python: Path, module: str, *, dry_run: bool) -> None:
         print(f"[doctor] {module} bridge smoke passed")
 
 
-def doctor(args: argparse.Namespace) -> None:
+def doctor_opencode(args: argparse.Namespace) -> None:
+    command_spec("node")
+    command_spec("npm")
+    major = opencode_major(args.opencode_cmd)
+    bridge_smoke(runtime_python(opencode_runtime_dir(Path(args.opencode_workspace or os.getcwd()).expanduser().resolve())), "sparseread_opencode.bridge", dry_run=args.dry_run)
+    if not args.dry_run:
+        workspace = Path(args.opencode_workspace or os.getcwd()).expanduser().resolve()
+        validate_opencode_workspace(workspace, major)
+        if major == 2:
+            spec = importlib.util.spec_from_file_location("sparseread_opencode_doctor", ROOT / "integrations" / "opencode" / "doctor_v2.py")
+            if spec is None or spec.loader is None:
+                raise SystemExit("Could not load OpenCode V2 host doctor")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            try:
+                module.check(command_spec(args.opencode_cmd).argv(), workspace)
+            except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+                raise SystemExit(f"OpenCode V2 host doctor failed: {exc}") from exc
+        else:
+            print("[doctor] transport/config only; OpenCode V1 host invocation has not been verified")
+
+
+def doctor(args: argparse.Namespace, *, skip_opencode: bool = False) -> None:
     profile = install_profile(args)
     command_spec("uv", install_hint="Install uv first: https://docs.astral.sh/uv/")
     if args.platform in {"codex", "pi"}:
         command_spec(args.codex_cmd if args.platform == "codex" else args.pi_cmd)
         doctor_host(args)
         return
-    if args.platform in {"opencode", "both"}:
-        command_spec("node")
-        command_spec("npm")
-        command_spec(args.opencode_cmd)
-        bridge_smoke(runtime_python(opencode_runtime_dir(Path(args.opencode_workspace or os.getcwd()).expanduser().resolve())), "sparseread_opencode.bridge", dry_run=args.dry_run)
-        if not args.dry_run:
-            validate_opencode_workspace(Path(args.opencode_workspace or os.getcwd()).expanduser().resolve())
+    if args.platform in {"opencode", "both"} and not skip_opencode:
+        doctor_opencode(args)
     if args.platform in {"openclaw", "both"}:
         command_spec("node")
         command_spec("npm")
@@ -1038,7 +1242,7 @@ def main() -> int:
     if args.platform in {"codex", "pi"}:
         install_host(args)
     if args.doctor:
-        doctor(args)
+        doctor(args, skip_opencode=args.platform in {"opencode", "both"})
     return 0
 
 
