@@ -38,6 +38,13 @@ _EPISODE_HINT_SCHEMA: dict[str, Any] = {
 }
 
 
+def _workspace_path(path: str, orchestrator: SparseReadingOrchestrator) -> Path:
+    resolved = Path(path).expanduser()
+    if not resolved.is_absolute() and orchestrator.workspace is not None:
+        resolved = Path(orchestrator.workspace) / resolved
+    return resolved
+
+
 class Tool:
     """Framework-neutral async tool contract used by SparseRead core.
 
@@ -152,7 +159,7 @@ class SroCardTool(Tool):
         }
 
     async def execute(self, path: str, episode_hint: Any = None, **kwargs: Any) -> str:
-        card = self.orchestrator.card(Path(path), episode_hint if isinstance(episode_hint, dict) else None)
+        card = self.orchestrator.card(_workspace_path(path, self.orchestrator), episode_hint if isinstance(episode_hint, dict) else None)
         payload: dict[str, Any] = {
             "file_card": card.to_dict(),
             "compatibility_note": "sro_card is retained for benchmark/legacy flows; use sro_preview as the production entrypoint.",
@@ -245,6 +252,10 @@ class SroPreviewTool(Tool):
     ) -> str:
         if target is None:
             target = {"artifact_id": artifact_id} if artifact_id else {"path": path}
+        if isinstance(target, dict) and isinstance(target.get("path"), str) and target["path"]:
+            target = {**target, "path": str(_workspace_path(target["path"], self.orchestrator))}
+        elif isinstance(target, str) and target:
+            target = str(_workspace_path(target, self.orchestrator))
         target_path = target.get("path") if isinstance(target, dict) else target
         if not isinstance(episode_hint, dict) and isinstance(target_path, str) and target_path:
             probe = self.orchestrator.episode_hint_probe(target_path, tool_name="sro_preview")
@@ -432,6 +443,8 @@ class SroReadTool(Tool):
         target = self._normalize_target(target)
         if not isinstance(target, dict):
             return "Error: target must be {'path': ...} or {'artifact_id': ...}."
+        if isinstance(target.get("path"), str) and target["path"]:
+            target = {**target, "path": str(_workspace_path(target["path"], self.orchestrator))}
         if not isinstance(mode, str):
             return "Error: mode must be one of scout, focus, collect, refine, verify."
         if not isinstance(hint, dict):

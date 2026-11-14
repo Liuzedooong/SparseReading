@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
+import secrets
 import sys
 import time
 from collections.abc import Callable
@@ -15,7 +17,7 @@ from typing import Any
 from sparseread import SparseRead
 from sparseread.config import SparseReadConfig
 from sparseread.core.benefit_gate import BenefitDecision, GateContext
-from sparseread.core.detector import FileInfo, inspect_file
+from sparseread.core.detector import FileInfo, _approved_collection, inspect_file
 from sparseread.core.episode import ReadingEpisode
 from sparseread.protocol import BRIDGE_PROTOCOL_VERSION
 
@@ -89,6 +91,8 @@ class SparseReadBridgeServer:
         # while FileCard/read recompute against another.
         self.episodes = self.runtime.orchestrator.episodes
         self._adapter_ready_conversations: dict[str, set[str]] = {}
+        self._source_manifests: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._raw_collection_sources: dict[str, dict[str, Any]] = {}
 
     def preview(self, params: dict[str, Any]) -> dict[str, Any]:
         target = params.get("target")
@@ -170,7 +174,7 @@ class SparseReadBridgeServer:
             card.recommended_mode = "native"
             card.reason = gate["reason"]
         else:
-            parent_gate = self._force_collection_parent_gate(Path(path), params)
+            parent_gate = None if params.get("manifest_token") else self._force_collection_parent_gate(Path(path), params)
             if parent_gate:
                 parent_path = Path(str(parent_gate["handoff_path"]))
                 card = self.runtime.orchestrator.card(parent_path)
@@ -390,13 +394,23 @@ class SparseReadBridgeServer:
         event_type = str(params.get("type") or "").strip().lower()
         conversation_id = self._conversation_id(params)
         if event_type in {"session_reset", "session_end"}:
+            session_artifacts = {
+                artifact_id for artifact_id, owner in self.runtime.orchestrator._artifact_conversations.items()
+                if owner == conversation_id
+            }
             episode = self.runtime.orchestrator.end_conversation(conversation_id)
         elif event_type == "assistant_final":
             episode = self.episodes.mark_final(conversation_id)
         else:
             episode = self.episodes.current(conversation_id)
         if event_type in {"session_reset", "session_end"}:
-            owned_artifacts = self._adapter_ready_conversations.pop(conversation_id, set())
+            for token, (owner, _) in list(self._source_manifests.items()):
+                if owner == conversation_id:
+                    self._source_manifests.pop(token, None)
+            owned_artifacts = self._adapter_ready_conversations.pop(conversation_id, set()) | session_artifacts
+            for raw_ref in list(self._raw_collection_sources):
+                if self.runtime.orchestrator._raw_ref_artifact_id(raw_ref) in owned_artifacts:
+                    self._raw_collection_sources.pop(raw_ref, None)
             for artifact_id in owned_artifacts:
                 self._adapter_ready_artifacts.pop(artifact_id, None)
                 self._adapter_card_results.pop(artifact_id, None)
@@ -480,6 +494,61 @@ class SparseReadBridgeServer:
                 "turn_id": self._turn_id(params),
             }
         )
+        if method == "source_manifest":
+            return self.source_manifest(params)
+        if method in {"preview", "card", "read", "raw", "decide"} and params.get("manifest_token"):
+            manifest = self._validate_source_manifest(method, params)
+            source = manifest["root"]
+            params = dict(params)
+            if method in {"card", "decide"}:
+                params["path"] = source
+            elif method in {"preview", "read"}:
+                target = params.get("target")
+                if isinstance(target, str):
+                    params["target"] = source
+                elif isinstance(target, dict) and target.get("path"):
+                    params["target"] = {**target, "path": source}
+                elif target is None and params.get("path"):
+                    params["path"] = source
+        approved_token = None
+        detector_token = None
+        if params.get("manifest_token") and manifest.get("kind") == "collection":
+            root = Path(manifest["root"])
+            orchestrator = self.runtime.orchestrator
+            artifact_id = orchestrator._path_to_artifact.get(orchestrator._state_path_key(root))
+            if artifact_id:
+                orchestrator._ready_collection_artifacts.pop(artifact_id, None)
+                orchestrator._ready_collection_evidence.pop(artifact_id, None)
+                orchestrator._ready_collection_guard_counts.pop(artifact_id, None)
+                for guards in (orchestrator._collection_child_guards, orchestrator._ready_collection_child_guards):
+                    for key, owner in list(guards.items()):
+                        if owner == artifact_id:
+                            guards.pop(key, None)
+                self._adapter_ready_artifacts.pop(artifact_id, None)
+                self._adapter_verify_passes.pop(artifact_id, None)
+                self._adapter_ready_conversations.get(self._conversation_id(params), set()).discard(artifact_id)
+            approved = {item["canonical_path"]: tuple(item["identity"]) for item in manifest["entries"]}
+            approved_token = orchestrator.collection_reader._approved_files.set(approved)
+            detector_token = _approved_collection.set((root, tuple(Path(name) for name in approved)))
+        try:
+            result = self._dispatch(method, params)
+            if approved_token is not None and method == "preview":
+                preview_pack = result.get("preview_pack") or {}
+                if preview_pack.get("error"):
+                    raise ValueError(str(preview_pack["error"]))
+                raw_ref = preview_pack.get("raw_ref")
+                if raw_ref:
+                    self._raw_collection_sources[str(raw_ref)] = manifest
+                    for key in list(self._raw_collection_sources):
+                        if key not in self.runtime.orchestrator._raw_refs:
+                            self._raw_collection_sources.pop(key, None)
+            return result
+        finally:
+            if approved_token is not None:
+                self.runtime.orchestrator.collection_reader._approved_files.reset(approved_token)
+                _approved_collection.reset(detector_token)
+
+    def _dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if method == "preview":
             return self.preview(params)
         if method == "raw":
@@ -509,7 +578,146 @@ class SparseReadBridgeServer:
             return {"ok": True}
         raise ValueError(f"unknown method: {method}")
 
+    def source_manifest(self, params: dict[str, Any]) -> dict[str, Any]:
+        manifest = self._source_manifest(params)
+        token = secrets.token_urlsafe(24)
+        self._source_manifests[token] = (self._conversation_id(params), manifest)
+        while len(self._source_manifests) > 512:
+            self._source_manifests.pop(next(iter(self._source_manifests)))
+        return {"complete": True, "kind": manifest["kind"], "root": manifest["root"],
+                "paths": manifest["paths"], "manifest_token": token}
+
+    def _validate_source_manifest(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        token = str(params.get("manifest_token") or "")
+        stored = self._source_manifests.pop(token, None)
+        if stored is None or stored[0] != self._conversation_id(params):
+            raise ValueError("unknown or unauthorized source manifest")
+        if method != "raw" and params.get("raw_ref"):
+            raise ValueError("ambiguous source fields")
+        if method == "raw":
+            if params.get("target") or params.get("path") or params.get("artifact_id"):
+                raise ValueError("ambiguous source fields")
+            request = {"raw_ref": params.get("raw_ref"), "context": {"conversation_id": self._conversation_id(params)}}
+        elif method in {"card", "decide"}:
+            if params.get("target") or params.get("artifact_id"):
+                raise ValueError("ambiguous source fields")
+            request = {"target": {"path": params.get("path")}, "context": {"conversation_id": self._conversation_id(params)}}
+        elif method == "preview":
+            target = params.get("target")
+            if target is not None and (params.get("path") or params.get("artifact_id")):
+                raise ValueError("ambiguous source fields")
+            if params.get("path") and params.get("artifact_id"):
+                raise ValueError("ambiguous source fields")
+            if target is None:
+                target = {"artifact_id": params.get("artifact_id")} if params.get("artifact_id") else {"path": params.get("path")}
+            request = {"target": target, "context": {"conversation_id": self._conversation_id(params)}}
+        else:
+            target = params.get("target")
+            hint = params.get("hint")
+            hint_artifact = str(hint.get("artifact") or "").strip() if isinstance(hint, dict) else ""
+            target_artifact = str(target.get("artifact_id") or "").strip() if isinstance(target, dict) else ""
+            if params.get("path") or params.get("artifact_id"):
+                raise ValueError("ambiguous source fields")
+            if not isinstance(target, dict) or (hint_artifact and hint_artifact != target_artifact):
+                raise ValueError("read target does not match authorized source")
+            request = {"target": target, "context": {"conversation_id": self._conversation_id(params)}}
+        if self._source_manifest(request) != stored[1]:
+            raise ValueError("source changed since permission preflight")
+        return stored[1]
+
+    def _source_manifest(self, params: dict[str, Any]) -> dict[str, Any]:
+        """List potential source files without opening their contents.
+
+        This is advisory preflight, not a filesystem snapshot or an authorization.
+        The caller must fail closed if it cannot authorize every returned path.
+        """
+        orchestrator = self.runtime.orchestrator
+        conversation_id = self._conversation_id(params)
+        target = params.get("target")
+        raw_ref = params.get("raw_ref")
+        if raw_ref and target is not None:
+            raise ValueError("ambiguous source fields")
+        if isinstance(target, dict) and target.get("path") and target.get("artifact_id"):
+            raise ValueError("ambiguous source fields")
+        if raw_ref:
+            path = orchestrator._raw_refs.get(str(raw_ref))
+            artifact_id = orchestrator._raw_ref_artifact_id(str(raw_ref))
+            _, current_path = orchestrator._resolve_raw_ref(str(raw_ref))
+            if path is None or current_path is None or orchestrator._artifact_conversations.get(artifact_id) != conversation_id:
+                raise ValueError("unknown or unauthorized raw_ref")
+        else:
+            if isinstance(target, str):
+                target = {"path": target}
+            if not isinstance(target, dict):
+                raise ValueError("target or raw_ref is required")
+            artifact_id = str(target.get("artifact_id") or "")
+            if artifact_id:
+                info = orchestrator._artifacts.get(artifact_id)
+                if info is None or orchestrator._artifact_conversations.get(artifact_id) != conversation_id:
+                    raise ValueError("unknown or unauthorized artifact_id")
+                path = info.path
+            else:
+                value = target.get("path")
+                if not isinstance(value, str) or not value:
+                    raise ValueError("target.path is required")
+                path = Path(value).expanduser()
+                if not path.is_absolute():
+                    path = Path(self.workspace or ".") / path
+        path = Path(os.path.abspath(path))
+        if not path.exists():
+            raise ValueError("source does not exist")
+        try:
+            canonical = path.resolve(strict=True)
+            if str(canonical) != str(canonical).strip():
+                raise ValueError("source path has boundary whitespace")
+            stat = path.stat()
+            identity = [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+            if path.is_dir():
+                if path.is_symlink():
+                    raise ValueError("collection symlinks are not supported")
+                entries = []
+                def onerror(error: OSError) -> None:
+                    raise error
+                for root, dirs, files in os.walk(path, followlinks=False, onerror=onerror):
+                    for name in dirs + files:
+                        entry = Path(root) / name
+                        if entry.is_symlink():
+                            raise ValueError("collection symlinks are not supported")
+                    for name in files:
+                        entry = Path(root) / name
+                        if not entry.is_file():
+                            raise ValueError("incomplete collection manifest")
+                        resolved = entry.resolve(strict=True)
+                        item = entry.stat()
+                        entries.append({"path": str(entry), "canonical_path": str(resolved),
+                                        "identity": [item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns]})
+                        if len(entries) > 1024:
+                            raise ValueError("collection manifest exceeds 1024 files")
+                entries.sort(key=lambda item: item["path"])
+                manifest = {"kind": "collection", "root": str(canonical), "identity": identity,
+                            "paths": [{"path": str(path), "canonical_path": str(canonical)}]
+                                     + [{"path": item["path"], "canonical_path": item["canonical_path"]} for item in entries],
+                            "entries": entries}
+                if raw_ref:
+                    observed = self._raw_collection_sources.get(str(raw_ref))
+                    def signature(value: dict[str, Any]) -> tuple[Any, ...]:
+                        return (value["root"], tuple(value["identity"]),
+                                tuple((item["canonical_path"], tuple(item["identity"])) for item in value["entries"]))
+                    if observed is None or signature(observed) != signature(manifest):
+                        raise ValueError("unknown or stale collection raw_ref")
+                return manifest
+            if not path.is_file():
+                raise ValueError("source manifest requires a regular file or collection")
+        except OSError as error:
+            raise ValueError(f"source is unavailable: {error}") from error
+        return {"kind": "file", "root": str(canonical),
+                "paths": [{"path": str(path), "canonical_path": str(canonical)}], "identity": identity}
+
     def _adapter_pack(self, pack: dict[str, Any]) -> dict[str, Any]:
+        if self.runtime.orchestrator.collection_reader._approved_files.get() is not None:
+            return pack
+        if str(pack.get("type") or "") in {"pdf", "text", "txt", "md", "markdown", "rst", "html", "htm"}:
+            return pack
         slot_digest = pack.get("slot_digest")
         if not isinstance(slot_digest, dict) or slot_digest.get("overall_status") != "ready":
             return pack
@@ -531,7 +739,7 @@ class SparseReadBridgeServer:
         conversation_id: str = "default",
     ) -> None:
         artifact_id = str(pack.get("artifact_id") or "")
-        if not artifact_id:
+        if not artifact_id or self.runtime.orchestrator.collection_reader._approved_files.get() is not None:
             return
         next_action = pack.get("next_action") if isinstance(pack.get("next_action"), dict) else {}
         slot_digest = pack.get("slot_digest") if isinstance(pack.get("slot_digest"), dict) else {}
@@ -542,6 +750,8 @@ class SparseReadBridgeServer:
         if not ready:
             return
         pack_type = str(pack.get("type") or "")
+        if pack_type != "collection":
+            return
         if pack_type == "collection" and artifact_id not in self._adapter_once_artifacts:
             return
         if pack_type not in {"collection", "pdf", "text", "txt", "md", "markdown", "rst"}:
@@ -929,7 +1139,7 @@ class SparseReadBridgeServer:
                 include_search=self.policy.native_passthrough_include_search,
             )
         else:
-            parent_gate = self._force_collection_parent_gate(path, params)
+            parent_gate = None if params.get("manifest_token") else self._force_collection_parent_gate(path, params)
             if parent_gate:
                 gate = parent_gate
                 parent_path = Path(str(parent_gate.get("handoff_path") or path))
@@ -986,8 +1196,9 @@ class SparseReadBridgeServer:
             )
         )
         if previous_id and (previous_id != episode.episode_id or semantic_changed):
-            self._forget_ready_for_scope(conversation_id, inspected.path)
-            self.runtime.orchestrator.reopen_path(inspected.path)
+            if self.runtime.orchestrator.collection_reader._approved_files.get() is None:
+                self._forget_ready_for_scope(conversation_id, inspected.path)
+                self.runtime.orchestrator.reopen_path(inspected.path)
         return decision, episode
 
     def _active_force_collection_root(self, path: Path, params: dict[str, Any]) -> Path | None:

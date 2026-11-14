@@ -37,8 +37,7 @@ def test_preview_csv_without_hintspec_returns_l0_card_and_raw_ref(tmp_path: Path
     assert prefix_raw["matches"][0]["text"] == "3,error,-1"
 
     stale_hash_raw = sro.raw(":".join(preview.raw_ref.split(":")[:2] + ["stalehash"]), selector="error")
-    assert stale_hash_raw["raw_ref"] == preview.raw_ref
-    assert stale_hash_raw["matches"][0]["text"] == "3,error,-1"
+    assert stale_hash_raw["error"] == "unknown or stale raw_ref; call sro_preview again"
 
 
 def test_preview_csv_counts_large_files_without_expanding_all_rows(tmp_path: Path) -> None:

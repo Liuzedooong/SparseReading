@@ -65,6 +65,7 @@ class SparseReadingOrchestrator:
         self.text_reader = TextReader()
         self.preview_builder = PreviewBuilder(self.collection_reader, self.text_reader)
         self._slot_digests: dict[str, dict[str, Any]] = {}
+        self._text_observations: dict[str, tuple[str, str]] = {}
         self._collection_child_guards: dict[str, str] = {}
         self._ready_collection_child_guards: dict[str, str] = {}
         self._collection_artifact_children: dict[str, set[str]] = {}
@@ -78,6 +79,7 @@ class SparseReadingOrchestrator:
         self._native_collection_roots: set[str] = set()
         self._diagnostic_sections: dict[str, dict[str, str]] = {}
         self._raw_refs: dict[str, Path] = {}
+        self._raw_ref_versions: dict[str, tuple[int, int, int, int, int]] = {}
         self._macro_activation_callback = macro_activation_callback
         self._macro_available = macro_available
         self._macro_requested = False
@@ -263,6 +265,7 @@ class SparseReadingOrchestrator:
             self._artifacts.pop(artifact_id, None)
             self._artifact_conversations.pop(artifact_id, None)
             self._slot_digests.pop(artifact_id, None)
+            self._text_observations.pop(artifact_id, None)
             self._collection_artifact_children.pop(artifact_id, None)
             self._ready_collection_artifacts.pop(artifact_id, None)
             self._ready_collection_evidence.pop(artifact_id, None)
@@ -274,6 +277,7 @@ class SparseReadingOrchestrator:
         for raw_ref in list(self._raw_refs):
             if self._raw_ref_artifact_id(raw_ref) in owned_artifacts:
                 self._raw_refs.pop(raw_ref, None)
+                self._raw_ref_versions.pop(raw_ref, None)
         prefix = f"{owner}\0"
         if owner != "default":
             self._native_collection_roots = {
@@ -300,6 +304,7 @@ class SparseReadingOrchestrator:
     def reopen_artifact(self, artifact_id: str) -> None:
         """Allow a model-confirmed follow-up to gather genuinely new evidence."""
         self._slot_digests.pop(artifact_id, None)
+        self._text_observations.pop(artifact_id, None)
         self._ready_collection_artifacts.pop(artifact_id, None)
         self._ready_collection_evidence.pop(artifact_id, None)
         self._ready_collection_guard_counts.pop(artifact_id, None)
@@ -564,7 +569,10 @@ class SparseReadingOrchestrator:
                 "next_action": self._ready_collection_artifacts[artifact_id],
             }
         if path.is_dir():
-            entries = [str(entry.relative_to(path)) for entry in sorted(path.rglob("*")) if entry.is_file()]
+            approved = self.collection_reader._approved_files.get()
+            files = ([Path(name) for name in sorted(approved)] if approved is not None
+                     else [entry for entry in sorted(path.rglob("*")) if entry.is_file()])
+            entries = [str(entry.relative_to(path)) for entry in files]
             if selector:
                 query = selector.strip().strip("\"'")
                 if query.startswith("./"):
@@ -572,7 +580,7 @@ class SparseReadingOrchestrator:
                 selected = None
                 root = path.resolve(strict=False)
                 direct = (path / query).resolve(strict=False)
-                if direct.is_file():
+                if direct.is_file() and (approved is None or str(direct) in approved):
                     try:
                         direct.relative_to(root)
                     except ValueError:
@@ -580,13 +588,13 @@ class SparseReadingOrchestrator:
                     else:
                         selected = direct
                 if selected is None:
-                    files = [entry for entry in sorted(path.rglob("*")) if entry.is_file()]
                     selected = next((entry for entry in files if str(entry.relative_to(path)) == query), None)
                     if selected is None:
                         selected = next((entry for entry in files if entry.name == query), None)
                     if selected is None:
                         selected = next((entry for entry in files if query.lower() in str(entry.relative_to(path)).lower()), None)
                 if selected is not None:
+                    self.collection_reader._check_approved_file(selected)
                     try:
                         text, raw_view = self._raw_text_view(selected)
                     except Exception as exc:
@@ -863,9 +871,26 @@ class SparseReadingOrchestrator:
         if info.type in self._STRUCTURED:
             return self.structured_reader.read(info.path, artifact_id, mode, hint, budget)
         if info.type in self._TEXT or info.path.suffix.lower() in {".txt", ".md", ".markdown", ".rst", ".pdf"}:
+            before = None
+            if mode == "collect" or hint.slots:
+                try:
+                    before = hashlib.sha256(info.path.read_bytes()).hexdigest()
+                except OSError:
+                    pass
             pack = self.text_reader.read(info.path, artifact_id, mode, hint, budget)
             if pack.slot_digest:
-                self._slot_digests[artifact_id] = pack.slot_digest
+                try:
+                    after = hashlib.sha256(info.path.read_bytes()).hexdigest()
+                except OSError:
+                    after = None
+                if before is not None and before == after:
+                    self._slot_digests[artifact_id] = pack.slot_digest
+                    self._text_observations[artifact_id] = (
+                        json.dumps(hint.to_dict(), sort_keys=True, ensure_ascii=False), after,
+                    )
+                else:
+                    self._slot_digests.pop(artifact_id, None)
+                    self._text_observations.pop(artifact_id, None)
             if episode is not None and self._pack_ready(pack):
                 self.episodes.mark_ready(
                     conversation_id=episode.conversation_id,
@@ -893,12 +918,27 @@ class SparseReadingOrchestrator:
         artifact_id = self._artifact_for(info)
         return artifact_id, info, ""
 
+    @staticmethod
+    def _raw_source_version(path: Path) -> tuple[int, int, int, int, int] | None:
+        try:
+            stat = path.stat()
+            return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+        except OSError:
+            return None
+
     def _raw_ref_for(self, artifact_id: str, path: Path) -> str:
-        key = f"raw:{artifact_id}:{hashlib.sha1(str(path).encode('utf-8')).hexdigest()[:10]}"
+        version = self._raw_source_version(path)
+        approved = self.collection_reader._approved_files.get()
+        source_identity = sorted(approved.items()) if path.is_dir() and approved is not None else None
+        key = f"raw:{artifact_id}:{hashlib.sha1(f'{path}:{version}:{source_identity}'.encode('utf-8')).hexdigest()[:10]}"
         self._raw_refs.pop(key, None)
         self._raw_refs[key] = path
+        if version is not None:
+            self._raw_ref_versions[key] = version
         while len(self._raw_refs) > self._MAX_RAW_REFS:
-            self._raw_refs.pop(next(iter(self._raw_refs)))
+            expired = next(iter(self._raw_refs))
+            self._raw_refs.pop(expired)
+            self._raw_ref_versions.pop(expired, None)
         return key
 
     def _resolve_raw_ref(self, raw_ref: str) -> tuple[str, Path | None]:
@@ -907,13 +947,17 @@ class SparseReadingOrchestrator:
             return raw_ref, None
         path = self._raw_refs.get(raw_ref)
         if path is not None:
+            if self._raw_ref_versions.get(raw_ref) != self._raw_source_version(path):
+                return raw_ref, None
             return raw_ref, path
-        if artifact_id:
+        if artifact_id and raw_ref == f"raw:{artifact_id}":
             prefix = f"raw:{artifact_id}:"
             matches = [key for key in self._raw_refs if key.startswith(prefix)]
             if len(matches) == 1:
                 key = matches[0]
-                return key, self._raw_refs[key]
+                candidate = self._raw_refs[key]
+                if self._raw_ref_versions.get(key) == self._raw_source_version(candidate):
+                    return key, candidate
         return raw_ref, None
 
     def _raw_text_view(self, path: Path) -> tuple[str, str]:
@@ -983,18 +1027,16 @@ class SparseReadingOrchestrator:
         )
 
     def _text_readiness_gate(self, artifact_id: str, info_type: str, mode: str, hint: HintSpec) -> EvidencePack | None:
+        if mode != "collect" or not self._text_observation_current(artifact_id):
+            return None
         existing = self._slot_digests.get(artifact_id)
         if not existing:
             return None
-        if hint.slots:
-            existing_ids = {str(slot.get("id")) for slot in existing.get("slots", []) if slot.get("id")}
-            requested_ids = {slot.id for slot in hint.slots}
-            if not requested_ids or not requested_ids.issubset(existing_ids):
-                return None
+        request = json.dumps(hint.to_dict(), sort_keys=True, ensure_ascii=False)
+        if self._text_observations[artifact_id][0] != request:
+            return None
         status = str(existing.get("overall_status") or "")
         if status not in {"ready", "needs_verify"}:
-            return None
-        if mode == "verify" and hint.slots and self._allow_text_slot_verify(existing, hint):
             return None
         digest = dict(existing)
         if status == "ready":
@@ -1007,7 +1049,7 @@ class SparseReadingOrchestrator:
             artifact_id=artifact_id,
             mode=mode,
             type=info_type,
-            summary="slot coverage already available; broad collect/focus suppressed",
+            summary="slot coverage already available for identical collect request",
             slot_digest=digest,
             unresolved=list(existing.get("unresolved_slots", [])),
             next_action={"allowed_next": digest["allowed_next"], "unresolved_slots": digest.get("unresolved_slots", [])},
@@ -1027,13 +1069,26 @@ class SparseReadingOrchestrator:
             if existing_slot
         )
 
+    def _text_observation_current(self, artifact_id: str) -> bool:
+        observed = self._text_observations.get(artifact_id)
+        info = self._artifacts.get(artifact_id)
+        if observed and info:
+            try:
+                if hashlib.sha256(info.path.read_bytes()).hexdigest() == observed[1]:
+                    return True
+            except OSError:
+                pass
+        self._slot_digests.pop(artifact_id, None)
+        self._text_observations.pop(artifact_id, None)
+        return False
+
     def has_text_slot_digest(self, path: str | Path) -> bool:
         try:
             info = self.inspect(path)
         except Exception:
             return False
         artifact_id = self._path_to_artifact.get(self._state_path_key(info.path))
-        return bool(artifact_id and artifact_id in self._slot_digests)
+        return bool(artifact_id and self._text_observation_current(artifact_id))
 
     @staticmethod
     def _text_slot_candidate_is_suspicious(slot: dict[str, Any], requested_slot: Any | None = None) -> bool:

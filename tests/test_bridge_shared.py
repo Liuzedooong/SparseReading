@@ -130,7 +130,7 @@ def test_shared_bridge_normalizes_common_natural_hint_values(tmp_path: Path) -> 
     assert "ROOT_CAUSE: cache invalidation" in text
 
 
-def test_opencode_ready_guard_allows_one_bounded_verify_then_stops(tmp_path: Path) -> None:
+def test_opencode_text_ready_does_not_block_followup_reads(tmp_path: Path) -> None:
     target = tmp_path / "report.md"
     target.write_text(
         "The public registry had 5,705 community-built skills.\n"
@@ -181,15 +181,13 @@ def test_opencode_ready_guard_allows_one_bounded_verify_then_stops(tmp_path: Pat
     trace = bridge.handle({"method": "trace", "params": {}})
 
     assert first["evidence_pack"]["slot_digest"]["overall_status"] == "ready"
-    assert "verify_ref" not in first["evidence_pack"]["slot_digest"]["slots"][0]
-    assert third["evidence_pack"]["next_action"]["guard"] == "opencode_adapter_ready_once"
-    assert third["evidence_pack"]["protocol_next"] == "write_file_now"
-    assert trace["adapter_verify_passes"] == {artifact_id: 1}
-    assert trace["adapter_guard_hits"] == 1
-    assert second["evidence_pack"]["summary"] != third["evidence_pack"]["summary"]
+    assert "verify_ref" in first["evidence_pack"]["slot_digest"]["slots"][0]
+    assert second["evidence_pack"]["error"] == ""
+    assert third["evidence_pack"]["error"] == ""
+    assert trace["adapter_guard_hits"] == 0
 
 
-def test_openclaw_ready_guard_stops_repeat_reads_immediately(tmp_path: Path) -> None:
+def test_openclaw_text_ready_allows_focus_and_raw(tmp_path: Path) -> None:
     target = tmp_path / "report.md"
     target.write_text(
         "The public registry had 5,705 community-built skills.\n"
@@ -232,10 +230,9 @@ def test_openclaw_ready_guard_stops_repeat_reads_immediately(tmp_path: Path) -> 
     trace = bridge.handle({"method": "trace", "params": {}})
 
     assert first["evidence_pack"]["slot_digest"]["overall_status"] == "ready"
-    assert raw["raw"]["next_action"]["guard"] == "openclaw_adapter_closure_once"
-    assert raw["raw"]["protocol_next"] == "write_file_now"
-    assert second["evidence_pack"]["protocol_next"] == "write_file_now"
-    assert trace["summary"]["adapter_guard_hits"] == 2
+    assert raw["raw"]["matches"][0]["text"].startswith("The public registry")
+    assert second["evidence_pack"]["error"] == ""
+    assert trace["summary"]["adapter_guard_hits"] == 0
 
 
 def test_openclaw_ready_guard_allows_new_slots_after_partial_ready(tmp_path: Path) -> None:
@@ -299,10 +296,10 @@ def test_openclaw_ready_guard_allows_new_slots_after_partial_ready(tmp_path: Pat
     raw_new_selector = bridge.handle({"method": "raw", "params": {"raw_ref": raw_ref, "selector": "FINAL_DEADLINE"}})
 
     assert first["evidence_pack"]["slot_digest"]["overall_status"] == "ready"
-    assert first["evidence_pack"]["slot_digest"]["resolved_slot_ids"] == ["root_cause"]
+    assert first["evidence_pack"]["slot_digest"]["slots"][0]["id"] == "root_cause"
     assert second["evidence_pack"]["summary"] != "adapter ready guard: evidence is already ready from the prior read; write the deliverable now"
-    assert second["evidence_pack"]["slot_digest"]["resolved_slot_ids"] == ["owner"]
-    assert repeat["evidence_pack"]["next_action"]["guard"] == "openclaw_adapter_closure_once"
+    assert second["evidence_pack"]["slot_digest"]["slots"][0]["id"] == "owner"
+    assert repeat["evidence_pack"]["slot_digest"]["slots"][0]["id"] == "root_cause"
     assert raw_new_selector["raw"]["matches"][0]["text"].startswith("FINAL_DEADLINE")
 
 
