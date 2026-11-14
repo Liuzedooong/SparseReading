@@ -70,7 +70,7 @@ Claude Code 2.1.325、Codex CLI 0.169.0 与官方 NanoBot 0.4.1 的指定宿主�
 - `auto`：默认模式。SparseRead 会在高收益任务上自动接管大文件、PDF、日志和审计证据包的 broad read/search/dump；小文件、脚本、配置、全表计算等低收益任务保持原生工具。
 - `advisory`：只注册 SparseRead 工具和提示，不拦截原生读取，依靠模型自然选择是否使用 SparseRead。
 
-不传 `--sparseread-mode` 时就是 `auto`。OpenClaw `2026.6.11` 的 `auto` 会自动配置必要的 lifecycle hook 权限；如果 `doctor` 报告 hook 未加载，优先检查 OpenClaw 插件权限或 profile 配置。只有明确想关闭拦截时，才使用 `--sparseread-mode advisory`。
+不传 `--sparseread-mode` 时，除 OpenCode V2 全局初次安装外默认是 `auto`。OpenClaw `2026.6.11` 的 `auto` 会自动配置必要的 lifecycle hook 权限；如果 `doctor` 报告 hook 未加载，优先检查 OpenClaw 插件权限或 profile 配置。只有明确想关闭拦截时，才使用 `--sparseread-mode advisory`。
 
 ## 验证范围
 
@@ -102,6 +102,12 @@ uv run --no-project --python 3.12 python scripts/install_sparseread.py \
 绝对路径形式的 `OPENCODE_CONFIG_DIR` 会覆盖此位置，相对路径会被拒绝。
 每个本地会话使用其实际工作目录；远程工作区不受支持。安装后重启 OpenCode。
 
+全局初次安装默认 `advisory`；重装时不指定模式会保留原有 policy 和 bridge 模式。
+若希望改用 auto，可自行用 `--platform opencode --global --sparseread-mode auto`
+重跑安装并重启 OpenCode。在本地终端 UI 中，首次在 advisory 模式下成功取得非空 `sro_read` 证据
+满 24 小时后，下一次符合条件的读取会显示一次建议；不会自动切换模式。提示需要读取发生时本地 TUI 正在运行；
+无界面运行不会显示提示。此功能只保存首次时间和是否提示，不保存来源路径或内容。
+
 在实测的 2.3.0 中，全局与项目中同 ID 的插件同时存在时，宿主只运行全局副本，
 并可能将项目副本显示为 `Duplicate plugin ID: sparseread` 失败；项目文件仍保留。
 若某个项目需要禁用 SparseRead，可在该项目的 OpenCode 配置中加入
@@ -109,7 +115,8 @@ uv run --no-project --python 3.12 python scripts/install_sparseread.py \
 和项目副本。也可自行检查并移除旧的项目 SparseRead 插件。
 
 卸载全局副本时，检查后只移除全局配置根目录内的 `plugins/sparseread`、
-`sparseread.json` 和 `sparseread/runtime/opencode`，保留其他插件及配置。
+`sparseread.json`、`sparseread/runtime/opencode` 和（如存在）
+`sparseread/onboarding`，保留其他插件及配置。
 移除后，保留的项目副本可再次生效。`--doctor` 使用隔离的确定性 provider，
 验证宿主注册及调用，不代表真实模型质量或性能测试。
 
@@ -442,5 +449,5 @@ PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integra
 
 历史 benchmark 和旧脚本可能还统计 `sro_card -> sro_read`。这条路径保留，并可通过 `SPARSEREAD_MODE=bench_protocol` 或 `SparseReadConfig(mode="bench_protocol")` 使用。
 
-生产安装默认就是 `--sparseread-mode auto`。用户侧用自然语言要求 agent 自动使用 SparseRead；框架内部仍以 `sro_preview` 作为第一入口。需要只提示不拦截时，安装时改用 `--sparseread-mode advisory`。
+生产安装默认是 `--sparseread-mode auto`；OpenCode V2 全局初次安装默认 advisory。用户侧用自然语言要求 agent 自动使用 SparseRead；框架内部仍以 `sro_preview` 作为第一入口。需要只提示不拦截时，安装时改用 `--sparseread-mode advisory`。
 OpenCode benchmark runner 里的 `plugin_auto` 才对应这个生产安装形态；`plugin_nudge` 和 `plugin_replace_truncation_experimental` 只是兼容/调试对照行，不是用户安装后的默认模式。
