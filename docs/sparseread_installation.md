@@ -85,6 +85,34 @@ Claude Code 2.1.325、Codex CLI 0.169.0 与官方 NanoBot 0.4.1 的指定宿主�
 真实模型验证和确定性测试、候选 wheel 与最终归档的区别见
 [验证矩阵](framework_upgrade_20261114/validation-summary.md)。
 
+
+## OpenCode V2 全局安装（仅开发源码）
+
+此选项目前只存在于开发源码，已发布的 v0.1.4 安装 ZIP 不包含 `--global`。
+在包含此功能的开发检出目录中执行：
+
+```bash
+uv run --no-project --python 3.12 python scripts/install_sparseread.py \
+  --platform opencode --global --doctor
+```
+
+默认仍为项目安装。`--global` 面向当前用户，不可与 `--opencode-workspace`
+或其他 platform 一起使用；仅支持 OpenCode V2，V1 尚不具备 V2 所需的权限绑定。
+默认位置为 `$XDG_CONFIG_HOME/opencode`，未设置时为 `~/.config/opencode`；
+绝对路径形式的 `OPENCODE_CONFIG_DIR` 会覆盖此位置，相对路径会被拒绝。
+每个本地会话使用其实际工作目录；远程工作区不受支持。安装后重启 OpenCode。
+
+在实测的 2.3.0 中，全局与项目中同 ID 的插件同时存在时，宿主只运行全局副本，
+并可能将项目副本显示为 `Duplicate plugin ID: sparseread` 失败；项目文件仍保留。
+若某个项目需要禁用 SparseRead，可在该项目的 OpenCode 配置中加入
+`"plugins": ["-sparseread"]`（已有列表时合并），该设置会同时禁用同 ID 的全局
+和项目副本。也可自行检查并移除旧的项目 SparseRead 插件。
+
+卸载全局副本时，检查后只移除全局配置根目录内的 `plugins/sparseread`、
+`sparseread.json` 和 `sparseread/runtime/opencode`，保留其他插件及配置。
+移除后，保留的项目副本可再次生效。`--doctor` 使用隔离的确定性 provider，
+验证宿主注册及调用，不代表真实模型质量或性能测试。
+
 ## Fresh Machine 安装
 
 下载源码安装归档（以下校验命令适用于 macOS）：

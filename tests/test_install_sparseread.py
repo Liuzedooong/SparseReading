@@ -685,3 +685,82 @@ def test_claude_install_failure_rolls_back_runtime_settings_and_permissions(monk
     assert os.stat(mcp).st_mode & 0o777 == old_mcp_mode
     assert os.stat(settings).st_mode & 0o777 == old_settings_mode
     assert not (workspace / "CLAUDE.md").exists()
+
+
+def test_opencode_global_scope_paths_and_v1_rejection(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    monkeypatch.delenv("OPENCODE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    args = SimpleNamespace(global_install=True, opencode_workspace="", opencode_cmd="opencode", sparseread_mode="auto", skip_build=True, dry_run=True)
+    root, plugin, config, runtime = installer.opencode_install_paths(args)
+    assert root == tmp_path / "xdg" / "opencode"
+    assert plugin == root / "plugins" / "sparseread.js"
+    assert config == root / "sparseread.json"
+    assert runtime == root / "sparseread" / "runtime" / "opencode"
+    monkeypatch.setattr(installer, "opencode_major", lambda *_: 1)
+    with pytest.raises(SystemExit, match="requires V2"):
+        installer.install_opencode(args)
+
+
+def test_opencode_global_rollback_and_collision(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    monkeypatch.delenv("OPENCODE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    root = tmp_path / "opencode"
+    root.mkdir()
+    config = root / "sparseread.json"
+    config.write_text('{"other": true}')
+    args = SimpleNamespace(global_install=True, opencode_workspace="", opencode_cmd="opencode", sparseread_mode="auto", skip_build=True, dry_run=False)
+    monkeypatch.setattr(installer, "opencode_major", lambda *_: 2)
+    with pytest.raises(SystemExit, match="unmanaged"):
+        installer.install_opencode(args)
+    assert json.loads(config.read_text()) == {"other": True}
+    config.write_text('{"bridgeModule":"sparseread_opencode.bridge", "custom":true}')
+    old = config.read_text()
+    def runtime_install(runtime, *_a, **_kw):
+        runtime.mkdir(parents=True)
+        return installer.runtime_python(runtime)
+    monkeypatch.setattr(installer, "install_python_runtime", runtime_install)
+    monkeypatch.setattr(installer, "install_opencode_v2", lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("failed")))
+    with pytest.raises(RuntimeError, match="failed"):
+        installer.install_opencode(args)
+    assert config.read_text() == old
+    assert not (root / "sparseread" / "runtime" / "opencode").exists()
+
+
+def test_global_cli_scope_restrictions(monkeypatch) -> None:
+    import pytest
+    installer = load_installer()
+    monkeypatch.setattr(sys, "argv", ["install", "--platform", "both", "--global"])
+    with pytest.raises(SystemExit):
+        installer.parse_args()
+    monkeypatch.setattr(sys, "argv", ["install", "--platform", "opencode", "--global", "--opencode-workspace", "/tmp"])
+    with pytest.raises(SystemExit):
+        installer.parse_args()
+
+
+def test_opencode_global_config_override(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(tmp_path / "custom location"))
+    assert installer.opencode_global_root() == tmp_path / "custom location"
+    monkeypatch.setenv("OPENCODE_CONFIG_DIR", "relative")
+    with pytest.raises(SystemExit, match="absolute OPENCODE_CONFIG_DIR"):
+        installer.opencode_global_root()
+
+
+def test_opencode_global_refuses_unowned_venv(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+    installer = load_installer()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("OPENCODE_CONFIG_DIR", raising=False)
+    runtime = tmp_path / "opencode/sparseread/runtime/opencode"
+    runtime.mkdir(parents=True)
+    (runtime / "pyvenv.cfg").write_text("unrelated")
+    monkeypatch.setattr(installer, "opencode_major", lambda *_: 2)
+    args = SimpleNamespace(global_install=True, opencode_workspace="", opencode_cmd="opencode", sparseread_mode="auto", skip_build=True, dry_run=False)
+    with pytest.raises(SystemExit, match="unowned global"):
+        installer.install_opencode(args)
+    assert (runtime / "pyvenv.cfg").read_text() == "unrelated"

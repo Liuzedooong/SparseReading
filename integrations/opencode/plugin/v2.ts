@@ -2,6 +2,7 @@ import * as Plugin from "@opencode/plugin/promise/plugin"
 import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { SparseReadBridge } from "./.sparseread-transport/transport.js"
 
 type Obj = Record<string, any>
@@ -31,10 +32,17 @@ const contextFor = (c: any) => {
   if (!c.sessionID || !c.messageID || !c.id) throw new Error("SparseRead requires session, message and tool call IDs")
   return { conversation_id: String(c.sessionID), turn_id: String(c.messageID), message_id: String(c.messageID), tool_call_id: String(c.id) }
 }
+const pluginDir = path.dirname(fileURLToPath(import.meta.url))
+const globalInstall = existsSync(path.join(pluginDir, "global.json"))
 function config(root: string, options: Obj): Obj {
   let disk: Obj = {}
-  const file = path.join(root, ".opencode", "sparseread.json")
+  const file = globalInstall ? path.resolve(pluginDir, "..", "..", "sparseread.json") : path.join(root, ".opencode", "sparseread.json")
+  if (globalInstall && !existsSync(file)) throw new Error("Missing managed global SparseRead config")
   if (existsSync(file)) { const parsed = JSON.parse(readFileSync(file, "utf8")); if (!object(parsed)) throw new Error("Invalid SparseRead config"); disk = parsed }
+  if (globalInstall) {
+    if (!["auto", "advisory", "enforce", "observe", "native"].includes(disk.policy) || !["auto", "advisory", "bench_protocol", "force", "force_sro", "native"].includes(disk.mode)) throw new Error("Invalid managed global SparseRead policy or mode")
+    return { policy: disk.policy, mode: disk.mode }
+  }
   return { ...disk, ...options }
 }
 function prefix(value: unknown, python: string): string[] {
@@ -84,8 +92,11 @@ export default Plugin.define({
       if (previous) { previous.bridge.shutdown(); sessions.delete(id) }
       const settings = config(root, ctx.options as Obj)
       const python = String(settings.python ?? process.env.SPARSEREAD_PYTHON ?? "python3")
-      const cmd = prefix(settings.bridgeCommand ?? process.env.SPARSEREAD_BRIDGE_COMMAND, python)
-      const bridge = new SparseReadBridge(cmd[0], [...cmd.slice(1), "-m", String(settings.bridgeModule ?? "sparseread_opencode.bridge"), "--workspace", root, "--mode", String(settings.mode ?? process.env.SPARSEREAD_MODE ?? "auto")], String(settings.projectRoot ?? root), true)
+      const managedPython = path.resolve(pluginDir, "..", "..", "sparseread", "runtime", "opencode", process.platform === "win32" ? "Scripts" : "bin", process.platform === "win32" ? "python.exe" : "python")
+      if (globalInstall && !existsSync(managedPython)) throw new Error("Missing managed global SparseRead runtime")
+      const cmd = globalInstall ? [managedPython] : prefix(settings.bridgeCommand ?? process.env.SPARSEREAD_BRIDGE_COMMAND, python)
+      const moduleName = globalInstall ? "sparseread_opencode.bridge" : String(settings.bridgeModule ?? "sparseread_opencode.bridge")
+      const bridge = new SparseReadBridge(cmd[0], [...cmd.slice(1), ...(globalInstall ? ["-I"] : []), "-m", moduleName, "--workspace", root, "--mode", String(settings.mode ?? process.env.SPARSEREAD_MODE ?? "auto")], (globalInstall ? pluginDir : String(settings.projectRoot ?? root)), true)
       const value = { root, bridge, policy: String(settings.policy ?? process.env.SPARSEREAD_POLICY ?? "observe"), events: [] as Obj[], lifecycle: new Set<string>() }
       sessions.set(id, value)
       return value

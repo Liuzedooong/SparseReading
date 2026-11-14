@@ -16,9 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-def check(command: list[str], workspace: Path) -> None:
-    plugin = workspace / ".opencode" / "plugins" / "sparseread"
-    config = json.loads((workspace / ".opencode" / "sparseread.json").read_text(encoding="utf-8"))
+def check(command: list[str], workspace: Path, *, global_install: bool = False) -> None:
+    config_dir = workspace if global_install else workspace / ".opencode"
+    plugin = config_dir / "plugins" / "sparseread"
+    config = json.loads((config_dir / "sparseread.json").read_text(encoding="utf-8"))
     observed: dict[str, object] = {}
 
     class Provider(BaseHTTPRequestHandler):
@@ -58,10 +59,14 @@ def check(command: list[str], workspace: Path) -> None:
             root = Path(name)
             test_workspace = root / "workspace"
             test_workspace.mkdir()
-            plugin_target = test_workspace / ".opencode" / "plugins" / "sparseread"
+            test_config = root / "xdg_config_home" / "opencode" if global_install else test_workspace / ".opencode"
+            plugin_target = test_config / "plugins" / "sparseread"
             shutil.copytree(plugin, plugin_target)
-            config["projectRoot"] = str(test_workspace)
-            (test_workspace / ".opencode" / "sparseread.json").write_text(json.dumps(config), encoding="utf-8")
+            if global_install:
+                shutil.copytree(config_dir / "sparseread" / "runtime" / "opencode", test_config / "sparseread" / "runtime" / "opencode", symlinks=True)
+            if not global_install:
+                config["projectRoot"] = str(test_workspace)
+            (test_config / "sparseread.json").write_text(json.dumps(config), encoding="utf-8")
             (test_workspace / "fixture.txt").write_text("SparseRead doctor fixture.\n" * 200, encoding="utf-8")
             host_config = {
                 "share": "disabled", "model": "fixture/scripted",
