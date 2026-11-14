@@ -84,12 +84,14 @@ it is not part of the three-framework table in the paper.
 ### Current source candidate validation
 
 The local candidate has host-level deterministic checks on macOS arm64 for
-OpenCode 2.3.0 (and V1 1.17.14/1.19.5), Claude Code 2.1.325, and Codex CLI
-0.169.0. Limited DeepSeek workflows activated the OpenCode, Claude and Codex paths;
-Claude and Codex used test-only wire adapters, and the Claude model workflow
-used an earlier candidate.
-NanoBot 0.4.1 qualification and the final integrated release archive remain in
-progress; Pi and OpenClaw require final-candidate regression. Windows, Desktop,
+OpenCode 2.3.0 (and V1 1.17.14/1.19.5), Claude Code 2.1.325, Codex CLI
+0.169.0, and the official NanoBot 0.4.1 AgentLoop. Limited DeepSeek workflows
+activated each path; Claude and Codex used test-only wire adapters, while
+NanoBot used the stock host and Chat SSE. The Claude model workflow used an
+earlier candidate. NanoBot direct SparseRead source access requires a stock
+`read_file` selected in each persistent turn, and shell calls remain native.
+The final integrated release archive remains in progress; Pi and OpenClaw
+require final-candidate regression. Windows, Desktop,
 remote environments and performance gains for these upgraded adapters are not
 established by those checks. See the [validation matrix](docs/framework_upgrade_20261114/validation-summary.md).
 

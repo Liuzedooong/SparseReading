@@ -16,10 +16,11 @@ A thin adapter around one token-efficient reading runtime, not a new agent. A Re
 ## Adapter validation
 
 The source tree contains Claude Code, OpenCode, OpenClaw, NanoBot, Codex and Pi
-adapters. Validation is specific to host version and platform; NanoBot 0.4.1
-and the final integrated package are still being qualified in the current
-candidate. The historical paper results below do not establish newer-host
-performance. See the source repository's validation matrix for details.
+adapters. Validation is specific to host version and platform. NanoBot 0.4.1
+passed scoped macOS AgentLoop tests: each persistent turn requires selecting
+stock read_file before direct SparseRead source access, and shell stays native.
+The final integrated package is still being qualified. Historical paper results
+do not establish newer-host performance. See the source repository's validation matrix for details.
 
 ## Results (paper, vs Naive full reading)
 

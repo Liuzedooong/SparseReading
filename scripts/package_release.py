@@ -56,6 +56,7 @@ SOURCE_PATHS = (
     "docs/framework_upgrade_20261114/opencode-implementation.md",
     "docs/framework_upgrade_20261114/claude-implementation.md",
     "docs/framework_upgrade_20261114/codex-implementation.md",
+    "docs/framework_upgrade_20261114/nanobot-implementation.md",
     "docs/framework_upgrade_20261114/packaging-review.md",
     "integrations/claude/README.md",
     "integrations/opencode/README.md",

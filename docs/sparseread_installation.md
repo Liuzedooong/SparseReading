@@ -62,7 +62,7 @@ Windows 上如果 `npm`、`openclaw` 等入口实际是 `.cmd/.exe/.bat`，安�
 `--reader-extras none` 减少 runtime 依赖。
 
 当前候选在 macOS arm64 上验证过 OpenCode 2.3.0（另测 V1 1.17.14/1.19.5）、
-Claude Code 2.1.325 与 Codex CLI 0.169.0 的指定宿主路径。NanoBot 0.4.1、
+Claude Code 2.1.325、Codex CLI 0.169.0 与官方 NanoBot 0.4.1 的指定宿主路径。
 最终整包及本轮 Pi/OpenClaw 回归仍在进行；各自模型、权限和工件边界见验证矩阵。
 历史 OpenClaw 2026.6.11 记录不代表当前候选已完成验证。
 
@@ -80,7 +80,7 @@ Claude Code 2.1.325 与 Codex CLI 0.169.0 的指定宿主路径。NanoBot 0.4.1�
 | OpenCode 2.3.0；V1 1.17.14/1.19.5 | macOS arm64 指定宿主场景通过；远程和其他系统未验证 |
 | Claude Code 2.1.325 | macOS arm64 hooks/MCP 指定场景通过；Windows/PowerShell 未验证 |
 | Codex CLI 0.169.0 | macOS arm64 指定 CLI 场景通过；Desktop/Cloud/Web 未验证 |
-| NanoBot 0.4.1 | 本轮集成与独立验证进行中 |
+| NanoBot 0.4.1 | macOS arm64 官方 AgentLoop 与指定权限场景通过；其他版本及 Windows 未验证 |
 | OpenClaw / Pi | 历史记录保留；本次最终候选回归待完成 |
 
 真实模型验证和确定性测试、候选 wheel 与最终归档的区别见
@@ -221,10 +221,14 @@ uv run --project . python scripts/install_sparseread.py --platform openclaw --do
 
 ## 安装到 NanoBot
 
-NanoBot 使用 `sparseread-core` 与 `sparseread-nanobot` Python 包，宿主由用户
-自行安装。官方 `nanobot-ai` 0.4.1 接口适配与验证正在进行；安装 API 和支持范围
-以候选冻结后的 [NanoBot adapter 指南](../integrations/nanobot/python/README.md)
-及验证矩阵为准。历史 0.3.x 论文结果不代表 0.4.1 验证完成。
+NanoBot 使用 `sparseread-core` 与 `sparseread-nanobot` Python 包；候选的可选
+`nanobot` 依赖固定 `nanobot-ai==0.4.1`，在官方 AgentLoop 启动前调用
+`sparseread_nanobot.install(agent)`。每个持久回合必须先选择 stock `read_file`
+建立原生 reader 权限证明，有界读取也可；shell、目录列表和有界/强制读取保持原生。
+缺少证明或路径被拒绝时使用原生工具，非持久回合跳过 SparseRead 源访问。
+测试仅覆盖 macOS 上的 0.4.1 场景，其他版本与 Windows 未验证。具体安装和
+权限边界见 [NanoBot adapter 指南](../integrations/nanobot/python/README.md)
+及验证矩阵；历史 0.3.x 论文收益不代表新版本的性能结果。
 
 ## 安装到 Claude Code
 

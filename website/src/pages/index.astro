@@ -295,7 +295,9 @@ const [taglineLead, taglineStop] = glossary.tagline.split(/(?<=\.)\s+/);
         SparseRead is a thin adapter around one token-efficient reading runtime, not a new agent.
         The paper evaluates NanoBot, OpenCode, and OpenClaw at the versions shown below.
         Claude Code 2.1.325 has candidate host validation; the upgrade has not yet been released.
-        NanoBot 0.4.1 qualification remains in progress. Token savings are not uniform.
+        NanoBot 0.4.1 also passed scoped macOS AgentLoop validation: each persistent turn
+        requires a stock read_file selection before direct SparseRead source access, and shell stays native.
+        The 0.3.0 number shown below is the historical paper host. Token savings are not uniform.
       </p>
       <div class="harness-strip" data-claim-id={tab1.id} aria-label="Paper harnesses and candidate adapters">
         <div class="harness-track">
