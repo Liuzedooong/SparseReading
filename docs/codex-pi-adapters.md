@@ -2,9 +2,8 @@
 
 ## 结论与边界
 
-两端复用同一个 `sparseread-core`，只新增框架层。核心目录、reader、gate
-阈值、EvidencePack、episode 和 raw_ref 协议都不修改；不引入第二套摘要算法。
-现有 Claude Code 集成也不改动。新增适配不是论文效果的复测，不能直接沿用
+两端复用同一个 `sparseread-core`，由各自框架层提供接入；本轮核心身份修复和
+Claude 适配变更另见验证矩阵，不引入第二套摘要算法。新增适配不是论文效果的复测，不能直接沿用
 其他框架的 token/耗时收益作为 Codex/Pi 的实测结论。
 
 | 层 | Codex | Pi |
@@ -38,18 +37,19 @@ dependencies，避免打包第二份 agent/runtime。安装器使用官方 `pi i
 
 ## 一次安装
 
-前提：Python 3.11+、uv、Node.js，以及对应 CLI。PDF/XLSX reader 默认安装；
+前提：Python 3.11+、uv、已安装安全更新的 Node.js 22 或更高版本，以及对应 CLI。PDF/XLSX reader 默认安装；
 纯文本可加 `--reader-extras none`。只需下载一次仓库，然后任选一端：
 
 历史宿主验证版本：Codex CLI `0.158.0-alpha.2`，Pi `0.87.1`。本轮固定
 Codex CLI `0.169.0` 的实验性 app-server schema，并在隔离项目验证六个 MCP
-工具；hook 信任和真实模型激活需单独检查。CLI 结果不代表 Desktop、Cloud
+工具；hook 信任与模型激活需分别检查；本轮实际结果见
+[验证矩阵](framework_upgrade_20261114/validation-summary.md)。CLI 结果不代表 Desktop、Cloud
 或 Web 已通过。旧 Codex 必须
 具备插件/hook 接口；旧 Pi SDK 不应假设支持当前 `typebox` 和扩展 API。未验证
 旧版本兼容性，建议先更新到具备这些接口的版本。
 
 ```sh
-git clone --branch v0.1.3 https://github.com/Liuzedooong/SparseReading.git
+git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 
 uv run --python 3.12 python scripts/install_sparseread.py \
@@ -59,10 +59,9 @@ uv run --python 3.12 python scripts/install_sparseread.py \
   --platform pi --workspace /absolute/path/to/project --doctor
 ```
 
-两个扩展从 `v0.1.2` 起提供；推荐下载已修复大型工作区超时的 `v0.1.3`。
-也可以从 Release 下载 `sparseread-source-installer-v0.1.3.zip` 或 `.tar.gz`，解压到 `sparseread-v0.1.3`
-后运行相同命令。先用发布的 `SHA256SUMS` 核对下载内容。
-`v0.1.1` 的旧安装器不支持这两个新 platform。
+两个扩展最早从 `v0.1.2` 提供；`v0.1.3` 是历史标签，不包含本轮升级。
+当前候选尚未发布新 source installer，需使用包含候选提交的 checkout。
+旧仓库 release 附件未迁移；不要将历史标签当成本轮新包。
 
 若 Pi 重装时报 `Project is not trusted`，先审核目标项目的文件和扩展，然后
 显式加 `--pi-approve` 重跑安装命令。它仅为本次 Pi 安装命令提供项目批准，

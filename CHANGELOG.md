@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — 0.1.4 candidate
+
+- 迁入已准入的文本请求/来源身份修复与 workspace 相对路径修复，保留验证和原生回退。
+- 新增 OpenCode V2、修复 Claude hooks/MCP、扩充 Codex 宿主和信任边界检查；各版本实际验证范围见 `docs/framework_upgrade_20261114/validation-summary.md`。
+- NanoBot 0.4.1 与最终源码归档仍在验证中；本地候选尚未发布，真实模型小样本不构成性能对照。
+
 ## v0.1.3 — 2026-09-28
 
 - 修复 Codex/Pi 在大型工作区将长文件切换为 `full_fidelity` 原生读取时仍扫描父目录、

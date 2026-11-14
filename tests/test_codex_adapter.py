@@ -271,7 +271,8 @@ def test_codex_plugin_version_tracks_shared_adapter() -> None:
         (PLUGIN_ROOT.parents[2] / "agent-tools" / "python" / "pyproject.toml").read_text(encoding="utf-8")
     )
 
-    assert plugin_manifest["version"] == adapter_metadata["project"]["version"] == "0.1.3"
+    root_metadata = tomllib.loads((PLUGIN_ROOT.parents[3] / "pyproject.toml").read_text(encoding="utf-8"))
+    assert plugin_manifest["version"] == adapter_metadata["project"]["version"] == root_metadata["project"]["version"]
     assert plugin_manifest["interface"]["defaultPrompt"]
 
 

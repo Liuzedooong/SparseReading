@@ -2,7 +2,7 @@
 
 Codex / Pi 框架适配已加入源码安装入口：
 
-`v0.1.3` 已包含两个适配。可以下载 [v0.1.3 源码压缩包](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip)，或直接克隆本仓库，然后在项目根目录运行：
+历史 `v0.1.3` 标签已包含两个适配。当前升级尚未发布；如需使用本次候选改动，请使用包含相应提交的 checkout，[v0.1.3 源码压缩包](https://github.com/Liuzedooong/SparseReading/archive/refs/tags/v0.1.3.zip)不包含本次升级。在项目根目录运行：
 
 原仓库的 Release 附件没有迁移，版本标签与源码仍然保留。
 
@@ -15,7 +15,7 @@ uv run --python 3.12 python scripts/install_sparseread.py \
 
 安装后在目标项目重启并审核信任提示。Codex 的 hook 信任与插件安装是分开的；
 Pi 项目扩展也需用户批准。加 `--sparseread-mode advisory` 可仅使用工具/提示而不
-拦截原生读取。两端复用未修改的核心，尚不代表论文外的新框架收益实测。
+拦截原生读取。两端复用共享核心，尚不代表论文外的新框架收益实测。
 详见[适配设计、安装与回退](docs/codex-pi-adapters.md)。
 
 <div align="center">
@@ -38,7 +38,7 @@ SparseRead 是一个免训练、面向工具调用型 Agent 的阅读层。在�
 - **2026-09-14：** 支持 Claude Code、OpenCode、OpenClaw 和 NanoBot 四个框架。
 
 <p align="center">
-  <img src="assets/launch/sparseread-demo-wide.gif" alt="SparseRead 回放：全文读取 vs 稀疏取证，以及成本-质量前沿" width="100%">
+  <img src="https://raw.githubusercontent.com/Liuzedooong/SparseReading/main/assets/launch/sparseread-demo-wide.gif" alt="SparseRead 回放：全文读取 vs 稀疏取证，以及成本-质量前沿" width="100%">
 </p>
 
 Agent 很擅长推理，但默认的阅读动作往往仍然是：
@@ -80,23 +80,31 @@ Qwen3.6-Plus、DeepSeek-V4-Flash、DeepSeek-V4-Pro、GLM-5.1、Kimi-K2.5。
 
 | 框架 | Adapter | token 中位降幅 | 时间中位降幅 | 论文状态 |
 |---|---|---:|---:|---|
-| [NanoBot](integrations/nanobot/) | `sparseread-nanobot` | **69.0%** | **64.4%** | 已评测 |
-| [OpenCode](integrations/opencode/) | `sparseread-opencode` | **71.8%** | **64.9%** | 已评测 |
-| [OpenClaw](integrations/openclaw/) | `sparseread-openclaw` | **28.7%** | **28.2%** | 已评测 |
-| [Claude Code](integrations/claude/) | `sparseread-claude` | — | — | 本发布已支持 |
+| [NanoBot](integrations/nanobot/python/README.md) | `sparseread-nanobot` | **69.0%** | **64.4%** | 已评测 |
+| [OpenCode](integrations/opencode/README.md) | `sparseread-opencode` | **71.8%** | **64.9%** | 已评测 |
+| [OpenClaw](integrations/openclaw/README.md) | `sparseread-openclaw` | **28.7%** | **28.2%** | 已评测 |
+| [Claude Code](integrations/claude/README.md) | `sparseread-claude` | — | — | 源码适配，未纳入论文表格 |
 
-Claude Code 使用 MCP 加 `PreToolUse`/`PostToolUse` session hooks，不使用 npm 插件。
+Claude Code 使用 MCP 加逐事件 `PreToolUse`/`PostToolUse` hooks，不使用 npm 插件。
 当前本地集成验证报告见
-[`benchmarks/qwenclawbench/claude_final_aggregate_20260805.md`](benchmarks/qwenclawbench/claude_final_aggregate_20260805.md)。
+[`benchmarks/qwenclawbench/claude_final_aggregate_20260805.md`](https://github.com/Liuzedooong/SparseReading/blob/v0.1.3/benchmarks/qwenclawbench/claude_final_aggregate_20260805.md)。
 该报告尚未纳入论文中的三框架表格。
+
+### 当前源码候选验证
+
+在 macOS arm64 上，OpenCode 2.3.0（另测 V1 1.17.14/1.19.5）、Claude Code
+2.1.325 和 Codex CLI 0.169.0 已完成相应真实宿主的确定性协议检查。OpenCode、Claude 和 Codex 各有一次有限 DeepSeek 工作流；Claude 和 Codex 使用
+仅供测试的协议转换器，Claude 的模型运行早于最终候选的少量改动。NanoBot 0.4.1、最终整包以及当前候选的 Pi/OpenClaw
+回归仍在进行。上述结果不建立 Windows、Desktop、远程环境支持或升级后的性能收益；
+详细范围和证据见[验证矩阵](docs/framework_upgrade_20261114/validation-summary.md)。
 
 ## 安装
 
-当前发布基线是源码安装版。安装器会为所选框架构建受管 runtime，安装后的集成不会在
-运行时导入本 checkout 的源码。
+源码安装器会为所选框架构建受管 runtime，安装后的集成不会在运行时导入本 checkout
+的源码。当前升级仍是本地候选，尚未发布新版本。
 
 环境要求：Python 3.11+、[uv](https://docs.astral.sh/uv/)、OpenCode/OpenClaw 所需的
-Node.js 22+，以及目标 Agent CLI。
+已安装安全更新的 Node.js 22 或更高版本，以及目标 Agent CLI。
 
 安装器会在修改 workspace 前校验 Python 版本。如果系统默认 `python3` 过旧，推荐使用
 上面的 `uv run` 形式，或显式传入 `--python /path/to/python3.12`。默认安装 PDF/XLSX
@@ -106,7 +114,7 @@ Node.js 22+，以及目标 Agent CLI。
 git clone https://github.com/Liuzedooong/SparseReading.git
 cd SparseReading
 
-# 先验证 core、adapter、bridge protocol 和 release fixture
+# 以下测试仅适用于完整 git checkout；源码安装归档不包含 tests
 PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integrations/opencode/python/src:integrations/openclaw/python/src:integrations/claude/python/src" \
   uv run --project . --extra test pytest tests/test_release_fixtures.py -q
 ```
@@ -125,7 +133,7 @@ uv run --project . python scripts/install_sparseread.py \
   --platform openclaw \
   --doctor
 
-# Claude Code：向 workspace 写入 MCP 和 session hooks
+# Claude Code：向 workspace 写入 MCP 和逐事件 hooks
 uv run --project . python scripts/install_sparseread.py \
   --platform claude \
   --claude-workspace /path/to/your/project \
@@ -146,13 +154,13 @@ NanoBot 作为 Python 依赖安装 `sparseread-core` 和 `sparseread-nanobot`，
 
 ### 快速体验
 
-仓库内置了一个长 Markdown fixture：
+完整 git checkout 内置了一个长 Markdown fixture；源码安装归档不包含该 fixture：
 
 ```bash
 opencode run "Use SparseRead to inspect tests/fixtures/quick_test/incident-report.md and report ROOT_CAUSE, MITIGATION_OWNER, and FINAL_DEADLINE."
 ```
 
-安装对应 adapter 后，OpenClaw、Claude Code、NanoBot 会话也可以使用同类请求。
+其他 adapter 也可提供同类请求；当前候选实际验证范围见验证矩阵。
 
 ## 工作方式
 
@@ -186,6 +194,8 @@ Core 与 adapter 分离：adapter 只负责宿主框架的 bridge、生命周期
 
 ## 开发与测试
 
+以下命令需要完整 git checkout；源码安装归档不包含 tests 和 benchmark。
+
 单独运行 core 测试：
 
 ```bash
@@ -205,15 +215,14 @@ PYTHONPATH="packages/sparseread-core/src:integrations/nanobot/python/src:integra
 
 ## 当前边界
 
-- 当前版本是 `v0.1.3`，支持从源码安装包安装。
+- `v0.1.3` 是历史源码标签；当前候选尚未发布为新版本。
 - PyPI、npm 和各框架官方 marketplace 的一键发布尚未接通；目前支持路径是源码安装器。
-- Claude Code 已通过 MCP 和 session hooks 支持；Windows 上仍需按主机 CLI 和权限环境
-  单独验证 MCP 通路。
+- Claude 候选使用 MCP 和逐事件 hooks；本轮未独立验证 Windows 和 PowerShell 路径。
 - SparseRead 是选择性基础设施：小文件、精确全表计算和其他低稀疏任务应继续使用原生访问。
 
 ## 贡献
 
-提交 PR 前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。欢迎 bug 报告和聚焦于框架适配的
+提交 PR 前请阅读 [CONTRIBUTING.md](https://github.com/Liuzedooong/SparseReading/blob/main/CONTRIBUTING.md)。欢迎 bug 报告和聚焦于框架适配的
 反馈。
 
 ## 引用
