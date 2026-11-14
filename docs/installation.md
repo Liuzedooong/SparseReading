@@ -119,7 +119,10 @@ protocol.
 - OpenCode uses a workspace plugin plus a managed Python bridge.
 - OpenClaw uses a packed npm plugin plus a managed Python bridge.
 - Claude Code uses an MCP stdio server, `PreToolUse`/`PostToolUse` hooks, and a
-  generated `CLAUDE.md` when the workspace does not already have one.
+  generated `CLAUDE.md` when the workspace does not already have one. The
+  advisory mode does not block native reads; MCP and native Read use separate
+  host permissions. See `integrations/claude/README.md` for workspace, shell,
+  collection and platform limits.
 - NanoBot uses `sparseread-core` and `sparseread-nanobot` as Python dependencies.
 
 For architecture and package ownership, see

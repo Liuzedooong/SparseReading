@@ -269,11 +269,11 @@ def claude_mcp_config(workspace: Path, python: Path, mode: str) -> dict[str, obj
     }
 
 
-def claude_settings_config(workspace: Path, python: Path) -> dict[str, object]:
+def claude_settings_config(workspace: Path, python: Path, mode: str = "auto") -> dict[str, object]:
     hook_entry = {
         "type": "command",
         "command": str(python),
-        "args": ["-m", "sparseread_claude.hook", "--single", "--workspace", str(workspace)],
+        "args": ["-m", "sparseread_claude.hook", "--single", "--workspace", str(workspace), "--mode", mode],
     }
     return {
         "enabledMcpjsonServers": ["sparseread"],
@@ -332,6 +332,52 @@ def merge_json(path: Path, patch: dict[str, object], *, dry_run: bool) -> None:
             payload["enabledMcpjsonServers"] = merged
         else:
             payload[key] = value
+    write_json(path, payload, ensure_ascii=False)
+
+
+def merge_claude_settings(path: Path, patch: dict[str, object]) -> None:
+    """Atomically replace only this adapter's hooks, preserving others."""
+    payload: dict[str, object] = {}
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"cannot read existing JSON config {path}: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise SystemExit(f"existing JSON config must contain an object: {path}")
+    hooks = payload.get("hooks")
+    if hooks is None:
+        hooks = {}
+    if not isinstance(hooks, dict):
+        raise SystemExit(f"existing hooks must be an object: {path}")
+    patch_hooks = patch["hooks"]
+    for event in ("PreToolUse", "PostToolUse"):
+        entries = hooks.get(event, [])
+        if not isinstance(entries, list):
+            raise SystemExit(f"existing {event} hooks must be a list: {path}")
+        cleaned = []
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+                cleaned.append(entry)
+                continue
+            remaining = []
+            for hook in entry["hooks"]:
+                if isinstance(hook, dict):
+                    arguments = hook.get("args")
+                    text = str(hook.get("command") or "") + " " + (" ".join(map(str, arguments)) if isinstance(arguments, list) else "")
+                    if "sparseread_claude.hook" in text:
+                        continue
+                remaining.append(hook)
+            if remaining:
+                cleaned.append({**entry, "hooks": remaining})
+        hooks[event] = cleaned + patch_hooks[event]
+    payload["hooks"] = hooks
+    servers = payload.get("enabledMcpjsonServers", [])
+    if not isinstance(servers, list):
+        raise SystemExit(f"existing enabledMcpjsonServers must be a list: {path}")
+    if "sparseread" not in servers:
+        servers.append("sparseread")
+    payload["enabledMcpjsonServers"] = servers
     write_json(path, payload, ensure_ascii=False)
 
 
@@ -739,7 +785,13 @@ def doctor_host(args: argparse.Namespace) -> None:
     result = run([python, "-m", "sparseread_agent_tools.doctor", "--host", args.platform,
                   "--workspace", str(workspace), "--mode", str(config.get("mode", "auto"))], cwd=workspace)
     print(result.stdout.strip())
-    print("[doctor] Transport passed; host project trust/extension trust and Codex hook trust must still be verified in the host UI.")
+    print("[doctor] Transport/config passed; host activation has not been verified.")
+    if args.platform == "codex":
+        command = [python, str(ROOT / "scripts" / "check_codex_plugin.py"), str(workspace), "--codex", args.codex_cmd]
+        print(f"[doctor] With project trust approved, run in an isolated test workspace: {shlex.join(command)}")
+        print("[doctor] Hook trust and actual hook execution require separate host verification.")
+    else:
+        print("[doctor] Verify host project/extension trust and activation separately.")
 
 
 def install_opencode_plugin_file(plugin_target: Path, *, dry_run: bool) -> None:
@@ -936,40 +988,83 @@ def install_opencode(args: argparse.Namespace) -> None:
 
 
 def install_claude(args: argparse.Namespace) -> None:
-    profile = install_profile(args)
+    install_profile(args)
+    claude_mode = getattr(args, "mode", None) or getattr(args, "sparseread_mode", None) or "auto"
+    hook_mode = "advisory" if claude_mode in {"advisory", "observe", "native", "nudge"} else "auto"
     workspace = Path(args.claude_workspace or os.getcwd()).expanduser().resolve()
-    managed_python = install_python_runtime(
-        claude_runtime_dir(),
-        CLAUDE_ADAPTER,
-        python=getattr(args, "python", None) or sys.executable,
-        dry_run=args.dry_run,
-        reader_extras=getattr(args, "reader_extras", "all"),
-    )
-    print(f"[claude] install workspace: {workspace}")
-    if not args.dry_run:
-        merge_json(
-            workspace / ".mcp.json",
-            claude_mcp_config(workspace, managed_python, profile.mode),
-            dry_run=False,
-        )
-        merge_json(
-            workspace / ".claude" / "settings.local.json",
-            claude_settings_config(workspace, managed_python),
-            dry_run=False,
-        )
-        claude_md = workspace / "CLAUDE.md"
-        if not claude_md.exists():
+    runtime = claude_runtime_dir()
+    if runtime.is_symlink():
+        raise SystemExit(f"Refusing symlink in Claude runtime path: {runtime}")
+    mcp_path = workspace / ".mcp.json"
+    settings_path = workspace / ".claude" / "settings.local.json"
+    guidance = workspace / "CLAUDE.md"
+    for path in (workspace / ".claude", mcp_path, settings_path, guidance):
+        if path.is_symlink():
+            raise SystemExit(f"Refusing symlink in Claude installation path: {path}")
+    if args.dry_run:
+        install_python_runtime(runtime, CLAUDE_ADAPTER, python=getattr(args, "python", None) or sys.executable,
+                               dry_run=True, reader_extras=getattr(args, "reader_extras", "all"))
+        return
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    transaction = Path(tempfile.mkdtemp(prefix=".sparseread-claude-rollback-", dir=runtime.parent))
+    keep_backup = False
+    runtime_existed = runtime.exists()
+    old_mcp, old_settings, old_guidance = mcp_path.exists(), settings_path.exists(), guidance.exists()
+    mcp_changed = settings_changed = guidance_changed = False
+    try:
+        for present, source, name in ((old_mcp, mcp_path, "mcp"), (old_settings, settings_path, "settings")):
+            if present:
+                shutil.copy2(source, transaction / name)
+        managed_python = install_python_runtime(
+            runtime, CLAUDE_ADAPTER, python=getattr(args, "python", None) or sys.executable,
+            dry_run=False, reader_extras=getattr(args, "reader_extras", "all"),
+            upgrade_existing=True, upgrade_backup=transaction / "runtime")
+        mcp_changed = True
+        merge_json(mcp_path, claude_mcp_config(workspace, managed_python, claude_mode), dry_run=False)
+        if old_mcp:
+            mcp_path.chmod((transaction / "mcp").stat().st_mode)
+        settings_changed = True
+        merge_claude_settings(settings_path, claude_settings_config(workspace, managed_python, hook_mode))
+        if old_settings:
+            settings_path.chmod((transaction / "settings").stat().st_mode)
+        if not old_guidance:
             template = ROOT / "integrations" / "claude" / "CLAUDE.md"
             if template.exists():
-                write_text_atomic(claude_md, template.read_text(encoding="utf-8"))
-        else:
-            print(
-                "[claude] CLAUDE.md already exists; copy SRO guidance from "
-                f"{ROOT / 'integrations' / 'claude' / 'CLAUDE.md'} if needed"
-            )
-    print(f"[claude] mcp config: {workspace / '.mcp.json'}")
-    print(f"[claude] hook config: {workspace / '.claude' / 'settings.local.json'}")
+                guidance_changed = True
+                write_text_atomic(guidance, template.read_text(encoding="utf-8"))
+        if getattr(args, "doctor", False):
+            doctor(args)
+    except BaseException as original:
+        try:
+            for changed, existed, target, name in ((mcp_changed, old_mcp, mcp_path, "mcp"),
+                                                    (settings_changed, old_settings, settings_path, "settings")):
+                if changed:
+                    if existed:
+                        (transaction / name).replace(target)
+                    else:
+                        target.unlink(missing_ok=True)
+            if guidance_changed:
+                guidance.unlink(missing_ok=True)
+            backup = transaction / "runtime"
+            if backup.exists():
+                if runtime.exists():
+                    shutil.rmtree(runtime)
+                backup.rename(runtime)
+            elif not runtime_existed and runtime.exists():
+                shutil.rmtree(runtime)
+        except BaseException as rollback_error:
+            keep_backup = True
+            raise RuntimeError(f"Claude installation failed and rollback failed; backups retained at {transaction}: {rollback_error}") from original
+        raise
+    finally:
+        if not keep_backup:
+            shutil.rmtree(transaction)
+    print(f"[claude] install workspace: {workspace}")
+    print(f"[claude] mcp config: {mcp_path}")
+    print(f"[claude] hook config: {settings_path}")
     print(f"[claude] managed python: {managed_python}")
+    if old_guidance:
+        print("[claude] Existing CLAUDE.md was preserved; review its SparseRead guidance for the selected mode.")
     print("[claude] restart Claude Code or start a new session after install")
 
 
@@ -1241,7 +1336,7 @@ def main() -> int:
         install_claude(args)
     if args.platform in {"codex", "pi"}:
         install_host(args)
-    if args.doctor:
+    if args.doctor and args.platform != "claude":
         doctor(args, skip_opencode=args.platform in {"opencode", "both"})
     return 0
 

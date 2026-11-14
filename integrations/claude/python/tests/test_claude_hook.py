@@ -76,12 +76,12 @@ def test_nonexistent_path_native(session: HookSession, tmp_workspace: Path) -> N
     assert session.decide(str(tmp_workspace / "missing.txt"))["decision"] == "native"
 
 
-def test_collection_with_long_pdf_enforce(session: HookSession, tmp_workspace: Path) -> None:
+def test_directory_does_not_read_children_before_permission(session: HookSession, tmp_workspace: Path) -> None:
     bundle = tmp_workspace / "bundle"
     bundle.mkdir()
     (bundle / "doc.pdf").write_bytes(b"P" * 5000)
     (bundle / "notes.txt").write_text("notes", encoding="utf-8")
-    assert session.decide(str(bundle))["decision"] == "enforce"
+    assert session.decide(str(bundle))["decision"] == "native"
 
 
 def test_one_time_block(session: HookSession, tmp_workspace: Path) -> None:
@@ -119,19 +119,19 @@ def test_format_block_denies_with_context() -> None:
 
 def test_format_advisory_allows_with_context() -> None:
     payload = _format_advisory("/tmp/a.csv", "structured advisory")
-    assert payload["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert "permissionDecision" not in payload["hookSpecificOutput"]
     assert "sro_preview" in payload["hookSpecificOutput"]["additionalContext"]
 
 
 def test_format_allow() -> None:
-    assert _format_allow()["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert "permissionDecision" not in _format_allow()["hookSpecificOutput"]
 
 
 def test_format_post_nudge_appends_content() -> None:
     payload = _format_post_nudge("/tmp/a.txt", 9999, {"content": "hello"})
-    output = payload["hookSpecificOutput"]["updatedToolOutput"]
-    assert output["content"].startswith("hello")
-    assert "SparseRead tip" in output["content"]
+    output = payload["hookSpecificOutput"]
+    assert "updatedToolOutput" not in output
+    assert "SparseRead tip" in output["additionalContext"]
 
 
 def test_read_large_file_block(session: HookSession, tmp_workspace: Path) -> None:
@@ -143,13 +143,13 @@ def test_read_large_file_block(session: HookSession, tmp_workspace: Path) -> Non
 def test_read_small_file_allow(session: HookSession, tmp_workspace: Path) -> None:
     path = _write(tmp_workspace, "small", 100)
     resp = handle_pretooluse(session, "Read", {"file_path": str(path)})
-    assert resp["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert "permissionDecision" not in resp["hookSpecificOutput"]
 
 
 def test_read_with_constraints_allow(session: HookSession, tmp_workspace: Path) -> None:
     path = _write(tmp_workspace, "large", 13000)
     resp = handle_pretooluse(session, "Read", {"file_path": str(path), "offset": 1, "limit": 5})
-    assert resp["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert "permissionDecision" not in resp["hookSpecificOutput"]
 
 
 def test_bash_cat_large_file_block(session: HookSession, tmp_workspace: Path) -> None:
@@ -160,4 +160,4 @@ def test_bash_cat_large_file_block(session: HookSession, tmp_workspace: Path) ->
 
 def test_bash_non_file_allow(session: HookSession) -> None:
     resp = handle_pretooluse(session, "Bash", {"command": "ls -la"})
-    assert resp["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert "permissionDecision" not in resp["hookSpecificOutput"]

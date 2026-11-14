@@ -21,7 +21,7 @@ from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolResult, TextContent, Tool
 
 from sparseread_claude.bridge import ClaudeBridge
 from sparseread_claude.token_tracker import TokenTracker
@@ -37,7 +37,7 @@ SRO_PREVIEW_TOOL = Tool(
     name="sro_preview",
     description=(
         "⚠️ PRIMARY SparseRead ENTRYPOINT for large files, PDFs, and directories. "
-        "Use INSTEAD OF read_file when the target is: "
+        "Consider for targeted evidence when the target is: "
         "(1) a PDF file of any size, "
         "(2) a text/markdown/log file larger than ~12KB, "
         "(3) a directory with 3+ files, "
@@ -51,7 +51,7 @@ SRO_PREVIEW_TOOL = Tool(
     inputSchema={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Absolute or workspace-relative path."},
+            "path": {"type": "string", "description": "Workspace-relative path or absolute path inside the configured workspace."},
             "artifact_id": {
                 "type": "string",
                 "description": "Existing artifact id for follow-up previews.",
@@ -92,8 +92,8 @@ SRO_READ_TOOL = Tool(
         "TARGETED sparse evidence extraction AFTER sro_preview. "
         "Modes: scout/focus/collect/refine/verify. "
         "The hint MUST contain a 'goal'; use 'slots' or 'needles' for collect. "
-        "When slot_digest.overall_status is 'ready' or protocol_next is "
-        "'write_file_now', STOP reading and write the deliverable immediately."
+        "A ready digest can support the answer; verification and native fallback "
+        "remain available when necessary."
     ),
     inputSchema={
         "type": "object",
@@ -144,7 +144,7 @@ SRO_RAW_TOOL = Tool(
         "type": "object",
         "properties": {
             "raw_ref": {"type": "string"},
-            "range": {"type": "object", "description": "{start, end} byte range."},
+            "range": {"type": "object", "description": "Zero-based Unicode character offsets {start, end}; end is exclusive. Default returns at most 50000 characters; check truncated."},
             "selector": {"type": "string", "description": "Case-insensitive line selector."},
         },
         "required": ["raw_ref"],
@@ -179,8 +179,8 @@ SRO_TRACE_TOOL = Tool(
 SRO_PREFLIGHT_TOOL = Tool(
     name="sro_preflight",
     description=(
-        "Scan the workspace and return high-confidence evidence targets that "
-        "SparseRead recommends previewing first."
+        "Inspect top-level regular files in the workspace and return high-confidence "
+        "evidence targets. Directories are not scanned by this preflight."
     ),
     inputSchema={
         "type": "object",
@@ -261,14 +261,78 @@ class SparseReadClaudeMCP:
     """MCP wrapper around the shared ClaudeBridge runtime."""
 
     def __init__(self, workspace: str, mode: str = "auto") -> None:
-        self.workspace = workspace
+        self.workspace = str(Path(workspace).expanduser().resolve())
+        if not Path(self.workspace).is_dir():
+            raise ValueError("workspace must be an existing directory")
         self.mode = mode
-        self.bridge = ClaudeBridge(workspace=workspace, mode=mode)
+        self.bridge = ClaudeBridge(workspace=self.workspace, mode=mode)
         self.tracker = TokenTracker(enable_log=os_env_flag("SRO_TOKEN_LOG", "1"))
 
     def handle(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         request: dict[str, Any] = {"method": method, "params": params or {}}
         return self.bridge.handle(request)
+
+    def _path(self, value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("path must be a non-empty string")
+        root = Path(self.workspace)
+        path = Path(value).expanduser()
+        resolved = (path if path.is_absolute() else root / path).resolve()
+        if not resolved.is_relative_to(root):
+            raise ValueError("SparseRead target is outside the configured workspace; use native tools")
+        return str(resolved)
+
+    def _bound_params(self, method: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        params = dict(arguments)
+        if method in {"preview", "card", "read", "decide"}:
+            if params.get("path"):
+                params["path"] = self._path(params["path"])
+            if isinstance(params.get("target"), dict) and params["target"].get("path"):
+                params["target"] = {**params["target"], "path": self._path(params["target"]["path"])}
+            target = params.get("target")
+            if target is None:
+                target = {"artifact_id": params["artifact_id"]} if params.get("artifact_id") else {"path": params.get("path")}
+            manifest = self.handle("source_manifest", {"target": target})
+        elif method == "raw":
+            try:
+                manifest = self.handle("source_manifest", {"raw_ref": params.get("raw_ref")})
+            except ValueError as exc:
+                raise ValueError("unknown or stale raw_ref; call sro_preview again or use native reading") from exc
+        else:
+            return params
+        self._path(manifest["root"])
+        for item in manifest["paths"]:
+            self._path(item["path"])
+            self._path(item["canonical_path"])
+        params["manifest_token"] = manifest["manifest_token"]
+        return params
+
+    def _preflight(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        requested = arguments.get("workspace")
+        if requested and requested != self.workspace:
+            raise ValueError("preflight is limited to the configured workspace")
+        limit = min(64, max(1, int(arguments.get("max_candidates", 24))))
+        maximum = min(5, max(1, int(arguments.get("max_results", 3))))
+        handoffs = []
+        for candidate in sorted(Path(self.workspace).iterdir(), key=lambda item: item.name.lower())[:limit]:
+            if candidate.name.startswith(".") or candidate.is_symlink() or not candidate.is_file():
+                continue
+            params = self._bound_params("decide", {"path": str(candidate)})
+            result = self.handle("decide", params)
+            gate = result.get("claude_gate") or {}
+            if gate.get("mode") == "enforce":
+                handoffs.append({"path": str(candidate), "relative_path": candidate.name,
+                                 "type": result.get("type"), "reason": gate.get("reason"),
+                                 "decision_mode": result.get("decision", {}).get("mode"),
+                                 "gate_mode": gate.get("mode"), "trajectory": gate.get("trajectory")})
+                if len(handoffs) >= maximum:
+                    break
+        result = {"workspace": self.workspace, "handoffs": handoffs, "handoff_count": len(handoffs),
+                  "scope": "top-level regular files"}
+        if handoffs:
+            result["first_action"] = {"tool": "sro_preview", "path": handoffs[0]["relative_path"]}
+        self.bridge._record("sro_preflight", {"workspace": self.workspace}, result)
+        return result
 
     def handle_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         if tool_name == "sro_usage":
@@ -289,7 +353,7 @@ class SparseReadClaudeMCP:
         if method is None:
             return _safe_json({"error": f"unknown tool: {tool_name}"})
         try:
-            result = self.handle(method, arguments)
+            result = self._preflight(arguments) if method == "preflight" else self.handle(method, self._bound_params(method, arguments))
             result = _slim_for_model(tool_name, result)
             self._record_usage(tool_name, arguments, result)
             return _safe_json(result)
@@ -342,9 +406,14 @@ def build_server(sr_mcp: SparseReadClaudeMCP) -> Server:
         return ALL_TOOLS
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         result_text = sr_mcp.handle_tool(name, arguments or {})
-        return [TextContent(type="text", text=result_text)]
+        result = json.loads(result_text)
+        is_error = bool(result.get("error")) or any(
+            isinstance(result.get(key), dict) and bool(result[key].get("error"))
+            for key in ("raw", "preview_pack", "evidence_pack")
+        )
+        return CallToolResult(content=[TextContent(type="text", text=result_text)], isError=is_error)
 
     return server
 
