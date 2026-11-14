@@ -2,7 +2,7 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import path from "node:path"
 
 // This state is intentionally limited to a timestamp and a one-time marker.
-const delay = 24 * 60 * 60 * 1000
+const delay = 48 * 60 * 60 * 1000
 
 function stateDir(pluginDir: string): string {
   const root = path.resolve(pluginDir, "..", "..")

@@ -15,9 +15,12 @@ A thin adapter around one token-efficient reading runtime, not a new agent. A Re
 
 ## Installation
 
-Download the v0.1.4 source installer ZIP and SHA256SUMS from
+Download the updated v0.1.4 source installer ZIP and SHA256SUMS-20261114 from
 https://github.com/Liuzedooong/SparseReading/releases/tag/v0.1.4 and follow the
-installation guide. PyPI project registration is pending.
+installation guide. For OpenCode V2, --global installs for the current user.
+Fresh global installs default to advisory. The terminal suggests auto once on
+a successful evidence read at least 48 hours after the first.
+PyPI project registration is pending.
 
 ## Adapter validation
 
