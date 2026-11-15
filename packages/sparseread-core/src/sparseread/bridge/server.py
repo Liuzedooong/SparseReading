@@ -19,6 +19,7 @@ from sparseread.config import SparseReadConfig
 from sparseread.core.benefit_gate import BenefitDecision, GateContext
 from sparseread.core.detector import FileInfo, _approved_collection, inspect_file
 from sparseread.core.episode import ReadingEpisode
+from sparseread.pdf import PdfSource
 from sparseread.protocol import BRIDGE_PROTOCOL_VERSION
 
 GateClassifier = Callable[[FileInfo, BenefitDecision], dict[str, Any]]
@@ -65,8 +66,9 @@ class SparseReadBridgeServer:
         mode: str = "auto",
         classifier: GateClassifier,
         policy: BridgePolicy,
+        pdf_source: PdfSource | None = None,
     ) -> None:
-        self.runtime = SparseRead(SparseReadConfig(mode=mode, workspace=workspace))
+        self.runtime = SparseRead(SparseReadConfig(mode=mode, workspace=workspace, pdf_source=pdf_source))
         self.workspace = str(Path(workspace).resolve()) if workspace else None
         self.classifier = classifier
         self.policy = policy

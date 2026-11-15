@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from contextvars import ContextVar
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sparseread.core.readers.pdf_cache import PdfBinding
 
 STRUCTURED_EXTS = {".csv", ".tsv", ".xlsx", ".json", ".yaml", ".yml", ".xml"}
 TEXT_EXTS = {
@@ -49,6 +53,7 @@ class FileInfo:
     structured: bool
     supported: bool
     large: bool
+    _pdf_binding: PdfBinding | None = field(default=None, init=False, repr=False, compare=False)
 
 
 def file_type(path: Path) -> str:

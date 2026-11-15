@@ -28,6 +28,7 @@ class SparseRead:
             workspace,
             macro_available=True,
             benefit_gate_override=benefit_override,
+            pdf_source=config.pdf_source,
         )
         self.last_trace: dict[str, Any] | None = None
 

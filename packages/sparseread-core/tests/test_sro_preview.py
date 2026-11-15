@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from sparseread.core.orchestrator import SparseReadingOrchestrator
-from sparseread.core.readers.text import TextUnit
+from sparseread import NativePdfSource, PdfSnapshot, PdfUnit
 
 
 def test_preview_csv_without_hintspec_returns_l0_card_and_raw_ref(tmp_path: Path) -> None:
@@ -76,13 +76,13 @@ def test_raw_pdf_returns_extracted_text_view(tmp_path: Path, monkeypatch) -> Non
     path.write_bytes(b"%PDF fake")
     sro = SparseReadingOrchestrator(tmp_path)
 
-    def fake_units(_path: Path):
-        return [
-            TextUnit(anchor="p1:L1-L1", text="Registry data was collected on February 7, 2026."),
-            TextUnit(anchor="p2:L1-L1", text="The paper proposes 6 new benchmark tasks."),
-        ], [], "pdf"
+    def fake_snapshot(_source: NativePdfSource, _path: Path) -> PdfSnapshot:
+        return PdfSnapshot("fixture", (
+            PdfUnit("p1:L1-L1", "Registry data was collected on February 7, 2026."),
+            PdfUnit("p2:L1-L1", "The paper proposes 6 new benchmark tasks."),
+        ))
 
-    monkeypatch.setattr(sro.text_reader, "_load_units", fake_units)
+    monkeypatch.setattr(NativePdfSource, "open", fake_snapshot)
 
     preview = sro.preview({"path": str(path)})
     raw = sro.raw(preview.raw_ref, selector="February 7")

@@ -24,8 +24,11 @@ from sparseread.core.models import (
 )
 from sparseread.core.preview import PreviewBuilder
 from sparseread.core.readers.collection import CollectionReader
+from sparseread.core.readers.native_pdf import NativePdfSource
+from sparseread.core.readers.pdf_cache import FileVersion, LoadedPdf, PdfBinding
 from sparseread.core.readers.structured import StructuredReader
 from sparseread.core.readers.text import TextReader
+from sparseread.pdf import PdfSource, PdfSourceError
 
 
 class SparseReadingOrchestrator:
@@ -54,6 +57,7 @@ class SparseReadingOrchestrator:
         macro_activation_callback: Callable[[], None] | None = None,
         macro_available: bool = False,
         benefit_gate_override: str | None = None,
+        pdf_source: PdfSource | None = None,
     ) -> None:
         self.workspace = workspace
         self._path_to_artifact: dict[str, str] = {}
@@ -62,7 +66,7 @@ class SparseReadingOrchestrator:
         self.structured_reader = StructuredReader()
         self.collection_reader = CollectionReader()
         self.benefit_gate = BenefitGate(self.collection_reader, override=benefit_gate_override)
-        self.text_reader = TextReader()
+        self.text_reader = TextReader(pdf_source)
         self.preview_builder = PreviewBuilder(self.collection_reader, self.text_reader)
         self._slot_digests: dict[str, dict[str, Any]] = {}
         self._text_observations: dict[str, tuple[str, str]] = {}
@@ -79,7 +83,7 @@ class SparseReadingOrchestrator:
         self._native_collection_roots: set[str] = set()
         self._diagnostic_sections: dict[str, dict[str, str]] = {}
         self._raw_refs: dict[str, Path] = {}
-        self._raw_ref_versions: dict[str, tuple[int, int, int, int, int]] = {}
+        self._raw_ref_versions: dict[str, FileVersion | PdfBinding] = {}
         self._macro_activation_callback = macro_activation_callback
         self._macro_available = macro_available
         self._macro_requested = False
@@ -132,7 +136,7 @@ class SparseReadingOrchestrator:
         proposed = self.benefit_gate.decide(info, hint)
         request = self._request_context.get() or {"conversation_id": "default", "turn_id": ""}
         conversation_id = request.get("conversation_id", "default")
-        previous = self.episodes.current(conversation_id)
+        previous = self.current_episode()
         previous_id = previous.episode_id if previous else ""
         previous_goal = previous.goal if previous else "unknown"
         previous_coverage = previous.coverage if previous else "unknown"
@@ -238,7 +242,13 @@ class SparseReadingOrchestrator:
 
     def current_episode(self) -> ReadingEpisode | None:
         request = self._request_context.get() or {"conversation_id": "default", "turn_id": ""}
-        return self.episodes.current(request.get("conversation_id", "default"))
+        episode = self.episodes.current(request.get("conversation_id", "default"))
+        if episode and episode.closure_ref:
+            info = self._artifacts.get(episode.closure_ref)
+            binding = info._pdf_binding if info else None
+            if binding is not None and not self.text_reader.pdf_cache.current(info.path, binding):
+                self._forget_pdf_evidence(episode.closure_ref)
+        return episode
 
     def end_conversation(self, conversation_id: str) -> ReadingEpisode | None:
         """Discard all per-conversation state after a host session reset/end."""
@@ -548,6 +558,13 @@ class SparseReadingOrchestrator:
                 error="preview target could not be resolved",
             )
         card = self.card(info.path, gate_context)
+        if info.type == "pdf":
+            try:
+                pdf = self._load_pdf(card.artifact_id, info.path, refresh=True)
+            except Exception as exc:
+                return self.preview_builder.build(info, card, "", pdf_error=exc)
+            raw_ref = self._raw_ref_for(card.artifact_id, info.path, pdf.binding)
+            return self.preview_builder.build(info, card, raw_ref, pdf=pdf)
         raw_ref = self._raw_ref_for(card.artifact_id, info.path)
         return self.preview_builder.build(info, card, raw_ref)
 
@@ -625,8 +642,26 @@ class SparseReadingOrchestrator:
             if selector:
                 result["error"] = f"selector did not match a file in collection: {selector}"
             return result
+        pdf_version = self._raw_ref_versions.get(resolved_ref)
+        pdf = None
         try:
-            text, raw_view = self._raw_text_view(path)
+            if isinstance(pdf_version, PdfBinding):
+                pdf = self.text_reader.pdf_cache.load(path)
+                if pdf.binding != pdf_version:
+                    return {"raw_ref": raw_ref, "error": "unknown or stale raw_ref; call sro_preview again"}
+                if selector and self.text_reader.structured_pdf:
+                    units, _, _ = self.text_reader.pdf_units(pdf)
+                    unit = next((unit for unit in units if unit.anchor == selector), None)
+                    if unit is not None:
+                        start, end = self._raw_range_bounds(unit.text, range)
+                        end = min(end, start + 50_000)
+                        return {
+                            "raw_ref": resolved_ref, "path": str(path), "view": "extracted_text",
+                            "selector": selector, "source": unit.source(pdf.binding.version),
+                            "range": {"start": start, "end": end}, "content": unit.text[start:end],
+                            "truncated": end < len(unit.text),
+                        }
+            text, raw_view = self._raw_text_view(path, pdf)
         except Exception as exc:
             return {
                 "raw_ref": resolved_ref,
@@ -827,7 +862,9 @@ class SparseReadingOrchestrator:
             episode = self.current_episode() if active_decision else None
         if (explicit_gate or episode is not None) and decision.mode == "native":
             return self._native_gate_pack(artifact_id, mode, info.type, decision)
-        if info.type in self._TEXT or info.path.suffix.lower() in {".txt", ".md", ".markdown", ".rst", ".pdf"}:
+        if info.type != "pdf" and (
+            info.type in self._TEXT or info.path.suffix.lower() in {".txt", ".md", ".markdown", ".rst", ".pdf"}
+        ):
             gated = self._text_readiness_gate(artifact_id, info.type, mode, hint)
             if gated:
                 return gated
@@ -871,26 +908,45 @@ class SparseReadingOrchestrator:
         if info.type in self._STRUCTURED:
             return self.structured_reader.read(info.path, artifact_id, mode, hint, budget)
         if info.type in self._TEXT or info.path.suffix.lower() in {".txt", ".md", ".markdown", ".rst", ".pdf"}:
-            before = None
-            if mode == "collect" or hint.slots:
+            if info.type == "pdf":
                 try:
-                    before = hashlib.sha256(info.path.read_bytes()).hexdigest()
-                except OSError:
-                    pass
-            pack = self.text_reader.read(info.path, artifact_id, mode, hint, budget)
-            if pack.slot_digest:
-                try:
-                    after = hashlib.sha256(info.path.read_bytes()).hexdigest()
-                except OSError:
-                    after = None
-                if before is not None and before == after:
-                    self._slot_digests[artifact_id] = pack.slot_digest
-                    self._text_observations[artifact_id] = (
-                        json.dumps(hint.to_dict(), sort_keys=True, ensure_ascii=False), after,
+                    pdf = self._load_pdf(artifact_id, info.path)
+                except Exception as exc:
+                    return EvidencePack(
+                        artifact_id, mode, "text", "reader error",
+                        error=f"Error reading {info.path}: {exc}", unresolved=list(hint.needles),
                     )
-                else:
-                    self._slot_digests.pop(artifact_id, None)
-                    self._text_observations.pop(artifact_id, None)
+                gated = self._text_readiness_gate(artifact_id, info.type, mode, hint)
+                if gated:
+                    return gated
+                pack = self.text_reader.read(info.path, artifact_id, mode, hint, budget, pdf=pdf)
+                if not self.text_reader.pdf_cache.current(info.path, pdf.binding):
+                    self._forget_pdf_evidence(artifact_id)
+                    return EvidencePack(
+                        artifact_id, mode, "pdf", "reader error",
+                        error="PDF source changed while reading; call sro_preview again",
+                        unresolved=list(hint.needles),
+                    )
+                if pack.slot_digest:
+                    self._remember_text_observation(artifact_id, hint, pack.slot_digest, pdf.binding.version)
+            else:
+                before = None
+                if mode == "collect" or hint.slots:
+                    try:
+                        before = hashlib.sha256(info.path.read_bytes()).hexdigest()
+                    except OSError:
+                        pass
+                pack = self.text_reader.read(info.path, artifact_id, mode, hint, budget)
+                if pack.slot_digest:
+                    try:
+                        after = hashlib.sha256(info.path.read_bytes()).hexdigest()
+                    except OSError:
+                        after = None
+                    if before is not None and before == after:
+                        self._remember_text_observation(artifact_id, hint, pack.slot_digest, after)
+                    else:
+                        self._slot_digests.pop(artifact_id, None)
+                        self._text_observations.pop(artifact_id, None)
             if episode is not None and self._pack_ready(pack):
                 self.episodes.mark_ready(
                     conversation_id=episode.conversation_id,
@@ -919,15 +975,15 @@ class SparseReadingOrchestrator:
         return artifact_id, info, ""
 
     @staticmethod
-    def _raw_source_version(path: Path) -> tuple[int, int, int, int, int] | None:
+    def _raw_source_version(path: Path) -> FileVersion | None:
         try:
             stat = path.stat()
             return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
         except OSError:
             return None
 
-    def _raw_ref_for(self, artifact_id: str, path: Path) -> str:
-        version = self._raw_source_version(path)
+    def _raw_ref_for(self, artifact_id: str, path: Path, pdf: PdfBinding | None = None) -> str:
+        version = pdf or self._raw_source_version(path)
         approved = self.collection_reader._approved_files.get()
         source_identity = sorted(approved.items()) if path.is_dir() and approved is not None else None
         key = f"raw:{artifact_id}:{hashlib.sha1(f'{path}:{version}:{source_identity}'.encode('utf-8')).hexdigest()[:10]}"
@@ -947,7 +1003,7 @@ class SparseReadingOrchestrator:
             return raw_ref, None
         path = self._raw_refs.get(raw_ref)
         if path is not None:
-            if self._raw_ref_versions.get(raw_ref) != self._raw_source_version(path):
+            if not self._raw_ref_current(raw_ref, path):
                 return raw_ref, None
             return raw_ref, path
         if artifact_id and raw_ref == f"raw:{artifact_id}":
@@ -956,20 +1012,57 @@ class SparseReadingOrchestrator:
             if len(matches) == 1:
                 key = matches[0]
                 candidate = self._raw_refs[key]
-                if self._raw_ref_versions.get(key) == self._raw_source_version(candidate):
+                if self._raw_ref_current(key, candidate):
                     return key, candidate
         return raw_ref, None
 
-    def _raw_text_view(self, path: Path) -> tuple[str, str]:
+    def _raw_ref_current(self, raw_ref: str, path: Path) -> bool:
+        version = self._raw_ref_versions.get(raw_ref)
+        if isinstance(version, PdfBinding):
+            info = self._artifacts.get(self._raw_ref_artifact_id(raw_ref))
+            return bool(info and info._pdf_binding == version and self.text_reader.pdf_cache.current(path, version))
+        return version == self._raw_source_version(path)
+
+    def _raw_text_view(self, path: Path, pdf: LoadedPdf | None = None) -> tuple[str, str]:
         if path.suffix.lower() == ".pdf":
-            units, _, _ = self.text_reader._load_units(path)
+            if pdf is None:
+                # Directory child retrieval keeps its existing native parser.
+                units = NativePdfSource().open(path).units
+            else:
+                units = pdf.snapshot.units
+            if pdf is not None and self.text_reader.structured_pdf:
+                return "\n".join(f"{unit.ref} {unit.text}" for unit in units if unit.text), "extracted_text"
             lines = []
             for unit in units:
                 text = " ".join(unit.text.split())
                 if text:
-                    lines.append(f"{unit.anchor} {text}")
+                    lines.append(f"{unit.ref} {text}")
             return "\n".join(lines), "extracted_text"
         return path.read_text(encoding="utf-8", errors="replace"), "original_text"
+
+    def _load_pdf(self, artifact_id: str, path: Path, *, refresh: bool = False) -> LoadedPdf:
+        info = self._artifacts[artifact_id]
+        binding = info._pdf_binding
+        if binding is not None and not self.text_reader.pdf_cache.current(path, binding):
+            self._forget_pdf_evidence(artifact_id)
+            if not refresh:
+                raise PdfSourceError("stale PDF source; call sro_preview again")
+        pdf = self.text_reader.pdf_cache.load(path)
+        if binding is not None and binding != pdf.binding:
+            self._forget_pdf_evidence(artifact_id)
+            if not refresh:
+                raise PdfSourceError("stale PDF source; call sro_preview again")
+        info._pdf_binding = pdf.binding
+        return pdf
+
+    def _forget_pdf_evidence(self, artifact_id: str) -> None:
+        self._slot_digests.pop(artifact_id, None)
+        self._text_observations.pop(artifact_id, None)
+        episode = self.episodes.current(self._conversation_id())
+        if episode and episode.closure_ref == artifact_id:
+            episode.closure_ref = ""
+            if episode.status == "evidence_ready":
+                episode.status = "open"
 
     @staticmethod
     def _raw_ref_artifact_id(raw_ref: str) -> str:
@@ -1069,10 +1162,24 @@ class SparseReadingOrchestrator:
             if existing_slot
         )
 
+    def _remember_text_observation(
+        self, artifact_id: str, hint: HintSpec, digest: dict[str, Any], version: str,
+    ) -> None:
+        self._slot_digests[artifact_id] = digest
+        self._text_observations[artifact_id] = (
+            json.dumps(hint.to_dict(), sort_keys=True, ensure_ascii=False), version,
+        )
+
     def _text_observation_current(self, artifact_id: str) -> bool:
         observed = self._text_observations.get(artifact_id)
         info = self._artifacts.get(artifact_id)
         if observed and info:
+            if info.type == "pdf":
+                binding = info._pdf_binding
+                if binding and binding.version == observed[1] and self.text_reader.pdf_cache.current(info.path, binding):
+                    return True
+                self._forget_pdf_evidence(artifact_id)
+                return False
             try:
                 if hashlib.sha256(info.path.read_bytes()).hexdigest() == observed[1]:
                     return True

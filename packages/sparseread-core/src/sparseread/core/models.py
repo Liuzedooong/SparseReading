@@ -381,9 +381,13 @@ class EvidenceBlock:
     anchor: str
     text: str
     score: float = 0.0
+    source: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if self.source is None:
+            del data["source"]
+        return data
 
 
 @dataclass(slots=True)

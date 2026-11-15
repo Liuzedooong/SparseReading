@@ -16,6 +16,7 @@ import yaml
 from sparseread.core.detector import FileInfo
 from sparseread.core.models import CompressionInfo, FileCard, PreviewPack
 from sparseread.core.readers.collection import CollectionReader
+from sparseread.core.readers.pdf_cache import LoadedPdf
 from sparseread.core.readers.text import TextReader
 
 
@@ -26,9 +27,16 @@ class PreviewBuilder:
         self.collection_reader = collection_reader
         self.text_reader = text_reader
 
-    def build(self, info: FileInfo, card: FileCard, raw_ref: str) -> PreviewPack:
+    def build(
+        self, info: FileInfo, card: FileCard, raw_ref: str,
+        *, pdf: LoadedPdf | None = None, pdf_error: Exception | None = None,
+    ) -> PreviewPack:
         try:
-            if info.type == "collection":
+            if pdf_error is not None:
+                raise pdf_error
+            if pdf is not None:
+                payload = self._text(info.path, pdf)
+            elif info.type == "collection":
                 payload = self._collection(info.path)
             elif info.path.suffix.lower() in {".csv", ".tsv"}:
                 payload = self._csv(info.path)
@@ -240,9 +248,22 @@ class PreviewBuilder:
             "signals": [{"kind": "repeated_lines", "items": repeated}] if repeated else [],
         }
 
-    def _text(self, path: Path) -> dict[str, Any]:
-        units, skeleton, kind = self.text_reader._load_units(path)
-        samples = [{"anchor": unit.anchor, "text": self._clip(unit.text, 320)} for unit in units[:5]]
+    def _text(self, path: Path, pdf: LoadedPdf | None = None) -> dict[str, Any]:
+        units, skeleton, kind = self.text_reader.pdf_units(pdf) if pdf else self.text_reader._load_units(path)
+        samples = [
+            {"anchor": unit.anchor, "text": unit.text if unit.is_table else self._clip(unit.text, 320)}
+            for unit in units[:5] if not unit.is_table or len(unit.text) <= 320
+        ]
+        structure = {"unit_count": len(units), "skeleton": skeleton[:24]}
+        if pdf is not None and self.text_reader.structured_pdf:
+            structure["parse_version"] = pdf.binding.version
+            structure["outline"] = [
+                {"ref": section.ref, "title": self._clip(section.title, 140), "level": section.level}
+                for section in pdf.snapshot.outline[:24]
+            ]
+            for sample in samples:
+                unit = next(unit for unit in units[:5] if unit.anchor == sample["anchor"])
+                sample["source"] = unit.source(pdf.binding.version)
         signals = []
         headings = [line for line in skeleton if line.lower().startswith("heading")]
         if headings:
@@ -250,7 +271,7 @@ class PreviewBuilder:
         return {
             "recipe": f"l0_{kind}_skeleton_sample",
             "summary": f"{kind} object with {len(units)} text units",
-            "structure": {"unit_count": len(units), "skeleton": skeleton[:24]},
+            "structure": structure,
             "samples": samples,
             "signals": signals,
         }

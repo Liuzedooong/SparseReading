@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from sparseread.pdf import PdfSource
+
 SparseReadMode = Literal[
     "auto",
     "bench_protocol",
@@ -26,6 +28,7 @@ class SparseReadConfig:
     mode: SparseReadMode = "auto"
     workspace: str | Path | None = None
     benefit_gate: bool = True
+    pdf_source: PdfSource | None = None
 
     def benefit_gate_override(self) -> str | None:
         if self.mode in {"auto", "bench_protocol"}:

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+import json
 import re
-import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,20 +15,15 @@ from sparseread.core.models import (
     HintSpec,
     SlotSpec,
 )
-
-
-@dataclass(slots=True)
-class TextUnit:
-    anchor: str
-    text: str
-    heading: str = ""
+from sparseread.core.readers.native_pdf import NativePdfSource
+from sparseread.core.readers.pdf_cache import LoadedPdf, PdfCache
+from sparseread.core.readers.text_units import TextUnit, looks_like_heading, looks_like_list_item, segment_text
+from sparseread.pdf import PdfSource
 
 
 class TextReader:
     """Extractive reader for PDF/text/markdown-like objects."""
 
-    _LONG_UNIT_CHARS = 1600
-    _LONG_UNIT_OVERLAP = 180
     _MONTHS = {
         "january", "february", "march", "april", "may", "june",
         "july", "august", "september", "october", "november", "december",
@@ -44,9 +38,19 @@ class TextReader:
         "was", "were", "who", "why", "did", "which",
     }
 
-    def read(self, path: Path, artifact_id: str, mode: str, hint: HintSpec, budget: int) -> EvidencePack:
+    def __init__(self, pdf_source: PdfSource | None = None) -> None:
+        source = pdf_source if pdf_source is not None else NativePdfSource()
+        self.pdf_cache = PdfCache(source)
+        self.structured_pdf = not isinstance(source, NativePdfSource)
+
+    def read(
+        self, path: Path, artifact_id: str, mode: str, hint: HintSpec, budget: int,
+        *, pdf: LoadedPdf | None = None,
+    ) -> EvidencePack:
         try:
-            units, skeleton, kind = self._load_units(path)
+            if pdf is None and path.suffix.lower() == ".pdf" and path.is_file():
+                pdf = self.pdf_cache.load(path.absolute())
+            units, skeleton, kind = self.pdf_units(pdf) if pdf is not None else self._load_units(path)
         except Exception as exc:
             return EvidencePack(
                 artifact_id=artifact_id,
@@ -58,8 +62,17 @@ class TextReader:
             )
 
         if mode == "collect" or hint.slots:
-            return self.collect(path, artifact_id, mode, hint, budget, units=units, skeleton=skeleton, kind=kind)
+            pack = self.collect(path, artifact_id, mode, hint, budget, units=units, skeleton=skeleton, kind=kind)
+        else:
+            pack = self._read_units(artifact_id, mode, hint, budget, units, skeleton, kind)
+        if pdf is not None and self.structured_pdf:
+            self._attach_pdf_sources(pack, units, pdf.binding.version)
+        return pack
 
+    def _read_units(
+        self, artifact_id: str, mode: str, hint: HintSpec, budget: int,
+        units: list[TextUnit], skeleton: list[str], kind: str,
+    ) -> EvidencePack:
         if mode == "scout" and not hint.needles and not hint.must_keep:
             evidence = self._scout_evidence(units, budget)
             unresolved = list(hint.needles)
@@ -159,6 +172,15 @@ class TextReader:
         best = ranked[0] if ranked else None
         candidate = ""
         candidate_block = best
+        if best is not None and any(unit.is_table for unit in units):
+            tables = {unit.anchor for unit in units if unit.is_table}
+            if best.anchor in tables:
+                return {
+                    "id": slot.id, "status": "partial", "candidate": "", "anchor": best.anchor,
+                    "confidence": 0.0, "verify_ref": f"{artifact_id}:{best.anchor}",
+                }
+            ranked = [block for block in ranked if block.anchor not in tables]
+            units = [unit for unit in units if not unit.is_table]
         if self._slot_wants_count(slot):
             count_choice = self._best_count_candidate(slot, ranked[:8], units)
             if count_choice:
@@ -306,7 +328,7 @@ class TextReader:
             if self._slot_wants_list(slot):
                 if any(term in hay for term in self._slot_section_terms(slot)):
                     score += 8.0
-                if self._looks_like_heading(unit.text.strip()) or self._looks_like_list_item(unit.text):
+                if looks_like_heading(unit.text.strip()) or looks_like_list_item(unit.text):
                     score += 0.8
             if score > 0:
                 blocks.append(EvidenceBlock(unit.anchor, unit.text, score))
@@ -356,7 +378,7 @@ class TextReader:
             for unit in units:
                 first_line = unit.text.strip().splitlines()[0].strip() if unit.text.strip() else ""
                 hay = f"{unit.heading}\n{unit.text}".lower()
-                if term in hay and self._looks_like_heading(first_line):
+                if term in hay and looks_like_heading(first_line):
                     return unit.anchor
         return ""
 
@@ -753,135 +775,41 @@ class TextReader:
                 out.append(lowered)
         return out[:8]
 
+    def pdf_units(self, pdf: LoadedPdf) -> tuple[list[TextUnit], list[str], str]:
+        snapshot = pdf.snapshot
+        units = [
+            TextUnit(
+                unit.ref, unit.text, " > ".join(unit.heading_path),
+                unit if self.structured_pdf else None, pdf.binding.version,
+            )
+            for unit in snapshot.units
+        ]
+        return units, [section.title for section in snapshot.outline[:24]], "pdf"
+
+    @staticmethod
+    def _attach_pdf_sources(pack: EvidencePack, units: list[TextUnit], version: str) -> None:
+        by_ref = {unit.anchor: unit for unit in units}
+        for block in pack.evidence:
+            block.source = by_ref[block.anchor].source(version)
+        if pack.slot_digest is not None:
+            for slot in pack.slot_digest["slots"]:
+                unit = by_ref.get(slot["anchor"])
+                if unit is None:
+                    continue
+                if unit.is_table or (slot["candidate"] and slot["candidate"] in unit.text):
+                    slot["source"] = unit.source(version)
+                else:
+                    # The legacy selector may assemble a candidate from neighboring units.
+                    # A guessed anchor is not a structured citation for that candidate.
+                    slot["verify_ref"] = ""
+
     def _load_units(self, path: Path) -> tuple[list[TextUnit], list[str], str]:
         if path.suffix.lower() == ".pdf":
-            return self._load_pdf_units(path)
+            return self.pdf_units(self.pdf_cache.load(path.absolute()))
         text = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
         kind = "html" if path.suffix.lower() in {".html", ".htm"} else "text"
         text = denoise_text(text, source_kind=kind).text
-        return self._segment_text(text, kind=kind)
-
-    def _load_pdf_units(self, path: Path) -> tuple[list[TextUnit], list[str], str]:
-        try:
-            result = subprocess.run(
-                ["pdftotext", "-layout", str(path), "-"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except FileNotFoundError:
-            pages = self._load_pdf_pages_with_pymupdf(path)
-        else:
-            if result.returncode != 0:
-                detail = (result.stderr or "").strip() or f"pdftotext exited with {result.returncode}"
-                raise RuntimeError(detail)
-            pages = (result.stdout or "").split("\f")
-        units: list[TextUnit] = []
-        skeleton: list[str] = []
-        for page_idx, page in enumerate(pages, start=1):
-            page_units, page_skeleton, _ = self._segment_text(page, kind="pdf", page=page_idx)
-            units.extend(page_units)
-            skeleton.extend(page_skeleton)
-        return units, self._dedupe(skeleton)[:24], "pdf"
-
-    @staticmethod
-    def _load_pdf_pages_with_pymupdf(path: Path) -> list[str]:
-        try:
-            import fitz  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise RuntimeError("PDF reading requires pdftotext or pymupdf") from exc
-        try:
-            doc = fitz.open(str(path))
-        except Exception as exc:
-            raise RuntimeError(f"pymupdf failed to open PDF: {exc}") from exc
-        try:
-            return [page.get_text("text") for page in doc]
-        finally:
-            doc.close()
-
-    def _segment_text(
-        self, text: str, *, kind: str, page: int | None = None,
-    ) -> tuple[list[TextUnit], list[str], str]:
-        lines = text.splitlines()
-        units: list[TextUnit] = []
-        skeleton: list[str] = []
-        buf: list[str] = []
-        start_line = 1
-        heading = ""
-
-        def flush(end_line: int) -> None:
-            nonlocal buf, start_line
-            raw = "\n".join(buf).strip()
-            if raw:
-                prefix = f"p{page}:" if page is not None else ""
-                self._append_text_units(units, prefix, start_line, end_line, raw, heading)
-            buf = []
-            start_line = end_line + 1
-
-        for idx, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            is_heading = self._looks_like_heading(stripped)
-            is_list = self._looks_like_list_item(line)
-            if is_heading:
-                flush(idx - 1)
-                heading = stripped
-                skeleton.append(f"p{page} {stripped}" if page is not None else stripped)
-                start_line = idx
-                buf = [line]
-                continue
-            if not stripped:
-                flush(idx - 1)
-                continue
-            if is_list and buf and len("\n".join(buf)) > 500:
-                flush(idx - 1)
-            if not buf:
-                start_line = idx
-            buf.append(line)
-            if len("\n".join(buf)) > 1200:
-                flush(idx)
-        flush(len(lines))
-        return units, self._dedupe(skeleton), kind
-
-    def _append_text_units(
-        self,
-        units: list[TextUnit],
-        prefix: str,
-        start_line: int,
-        end_line: int,
-        raw: str,
-        heading: str,
-    ) -> None:
-        base_anchor = f"{prefix}L{start_line}-L{end_line}"
-        if len(raw) <= self._LONG_UNIT_CHARS:
-            units.append(TextUnit(anchor=base_anchor, text=raw, heading=heading))
-            return
-        for char_start, char_end, chunk in self._split_long_text(raw):
-            units.append(TextUnit(anchor=f"{base_anchor}:C{char_start}-{char_end}", text=chunk, heading=heading))
-
-    def _split_long_text(self, text: str) -> list[tuple[int, int, str]]:
-        chunks: list[tuple[int, int, str]] = []
-        start = 0
-        length = len(text)
-        while start < length:
-            hard_end = min(length, start + self._LONG_UNIT_CHARS)
-            end = hard_end
-            if hard_end < length:
-                window = text[start:hard_end]
-                sentence_breaks = [window.rfind(mark) for mark in (". ", "? ", "! ")]
-                best_sentence = max(sentence_breaks)
-                if best_sentence >= self._LONG_UNIT_CHARS // 2:
-                    end = start + best_sentence + 1
-                else:
-                    space = window.rfind(" ")
-                    if space >= self._LONG_UNIT_CHARS // 2:
-                        end = start + space
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append((start, end, chunk))
-            if end >= length:
-                break
-            start = max(end - self._LONG_UNIT_OVERLAP, start + 1)
-        return chunks
+        return segment_text(text, kind=kind)
 
     @staticmethod
     def _local_text(anchor: str, units: list[TextUnit], *, before: int = 1, after: int = 1) -> str:
@@ -899,7 +827,10 @@ class TextReader:
             if any(term in hay for term in ("executive summary", "summary", "overview", "abstract")):
                 preferred.append(unit)
         preferred.extend(units[:3])
-        blocks = [EvidenceBlock(anchor=u.anchor, text=self._clip(u.text, 360), score=0.2) for u in self._unique_units(preferred)]
+        blocks = [
+            block for unit in self._unique_units(preferred)
+            if (block := self._unit_evidence(unit, 0.2, 360)) is not None
+        ]
         return self._fit_budget(blocks, min(budget, 1400))[:4]
 
     @staticmethod
@@ -911,25 +842,34 @@ class TextReader:
         terms = self._section_terms(hint)
         if not terms:
             return []
-        start_idx = -1
-        for idx, unit in enumerate(units):
-            label = f"{unit.heading}\n{unit.text}".lower()
-            if any(term in label for term in terms):
-                start_idx = idx
-                break
+        start_idx, section = next(
+            (
+                (idx, unit.pdf.heading_path[:depth])
+                for idx, unit in enumerate(units) if unit.pdf is not None
+                for depth, heading in enumerate(unit.pdf.heading_path, 1)
+                if any(term in heading.lower() for term in terms)
+            ),
+            (-1, ()),
+        )
+        if start_idx < 0:
+            start_idx = next(
+                (idx for idx, unit in enumerate(units)
+                 if any(term in f"{unit.heading}\n{unit.text}".lower() for term in terms)),
+                -1,
+            )
         if start_idx < 0:
             return []
 
         picked: list[EvidenceBlock] = []
         used = 0
         for offset, unit in enumerate(units[start_idx : start_idx + 10]):
-            block = EvidenceBlock(
-                anchor=unit.anchor,
-                text=self._clip(unit.text, 900),
-                score=8.0 if offset == 0 else max(1.0, 7.0 - offset * 0.4),
-            )
-            cost = len(block.anchor) + len(block.text) + 32
-            if picked and used + cost > budget:
+            if section and (unit.pdf is None or unit.pdf.heading_path[:len(section)] != section):
+                break
+            block = self._unit_evidence(unit, 8.0 if offset == 0 else max(1.0, 7.0 - offset * 0.4), 900)
+            if block is None:
+                continue
+            cost = self._block_cost(block)
+            if (picked or unit.is_table) and used + cost > budget:
                 break
             picked.append(block)
             used += cost
@@ -951,23 +891,37 @@ class TextReader:
                     score += 4.0 if term in must_keep_terms else 2.0
             if hint.want in {"count", "fact"} and re.search(r"\b\d+(?:[.,]\d+)?\b", unit.text):
                 score += 0.8
-            if self._looks_like_list_item(unit.text) or "suggested metrics" in hay:
+            if looks_like_list_item(unit.text) or "suggested metrics" in hay:
                 score += 0.4
             if unit.heading:
                 score += 0.3
-            if score > 0:
-                blocks.append(EvidenceBlock(anchor=unit.anchor, text=self._clip(unit.text, 900), score=score))
+            if score > 0 and (block := self._unit_evidence(unit, score, 900)) is not None:
+                blocks.append(block)
         if not blocks:
-            blocks = [EvidenceBlock(anchor=u.anchor, text=self._clip(u.text, 700), score=0.1) for u in units[:5]]
+            blocks = [block for unit in units[:5] if (block := self._unit_evidence(unit, 0.1, 700)) is not None]
         blocks.sort(key=lambda b: b.score, reverse=True)
         return blocks
+
+    def _unit_evidence(self, unit: TextUnit, score: float, limit: int) -> EvidenceBlock | None:
+        if unit.is_table:
+            if len(unit.text) > limit:
+                return None
+            return EvidenceBlock(unit.anchor, unit.text, score, unit.source(unit.pdf_version))
+        return EvidenceBlock(unit.anchor, self._clip(unit.text, limit), score)
+
+    @staticmethod
+    def _block_cost(block: EvidenceBlock) -> int:
+        cost = len(block.anchor) + len(block.text) + 32
+        if block.source:
+            cost += len(json.dumps(block.source, ensure_ascii=False))
+        return cost
 
     def _fit_budget(self, blocks: list[EvidenceBlock], budget: int) -> list[EvidenceBlock]:
         picked: list[EvidenceBlock] = []
         used = 0
         for block in blocks:
-            cost = len(block.anchor) + len(block.text) + 32
-            if picked and used + cost > budget:
+            cost = self._block_cost(block)
+            if (picked or block.source is not None) and used + cost > budget:
                 continue
             picked.append(block)
             used += cost
@@ -1018,49 +972,9 @@ class TextReader:
         return out[:6]
 
     @staticmethod
-    def _looks_like_list_item(line: str) -> bool:
-        return bool(re.match(r"^\s*(?:[-*]|\d+[.)])\s+\S", line))
-
-    @classmethod
-    def _looks_like_heading(cls, stripped: str) -> bool:
-        if not stripped or len(stripped) > 140:
-            return False
-        if "http://" in stripped or "https://" in stripped:
-            return False
-        if re.fullmatch(r"[\d\s./:%-]+", stripped):
-            return False
-        words = re.findall(r"[A-Za-z][A-Za-z&/+.-]*", stripped)
-        if not words or len(words) > 18:
-            return False
-        digit_count = sum(ch.isdigit() for ch in stripped)
-        if digit_count > max(3, len(stripped) // 5):
-            return False
-        if stripped.startswith("#"):
-            return True
-        if re.match(r"^\d+(?:\.\d+)*[.)]?\s+\S", stripped):
-            return True
-        if stripped.isupper() and len(words) >= 2:
-            return True
-        if stripped.endswith((".", "?", "!", ";")):
-            return False
-        capitalized = sum(1 for word in words if word[:1].isupper())
-        return capitalized >= max(1, len(words) - 1)
-
-    @staticmethod
     def _clip(text: str, limit: int) -> str:
         text = text.strip()
         return text if len(text) <= limit else text[: limit - 20].rstrip() + "\n...[clipped]..."
-
-    @staticmethod
-    def _dedupe(items: list[str]) -> list[str]:
-        seen: set[str] = set()
-        out: list[str] = []
-        for item in items:
-            key = item.strip()
-            if key and key not in seen:
-                seen.add(key)
-                out.append(key)
-        return out
 
     @staticmethod
     def _unique_units(units: list[TextUnit]) -> list[TextUnit]:

@@ -134,13 +134,14 @@ from sparseread_nanobot import NanobotAdapter
 
 ## Core API Sketch
 
+For explicit injection of a local PDF parser, see the [PDF source contract](pdf_source.md).
+
 ```python
 from sparseread import SparseReadAgentWrapper, SparseReadConfig
 
 config = SparseReadConfig(
     mode="auto",
     workspace=".",
-    readers=["text", "structured", "collection"],
     benefit_gate=True,
 )
 
