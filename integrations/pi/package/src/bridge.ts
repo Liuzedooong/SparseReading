@@ -165,7 +165,7 @@ export class BridgeClient {
         "--mode",
         this.config.mode,
       ],
-      { cwd: this.config.workspace, stdio: ["pipe", "pipe", "pipe"] },
+      { cwd: this.config.workspace, stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
     ) as ChildProcessWithoutNullStreams
     this.child = child
     child.stdin.on("error", (error: Error) => this.failChild(child, error))

@@ -84,6 +84,7 @@ export class SparseReadBridge {
       cwd: this.cwd,
       env,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     })
     this.process.stdout.setEncoding("utf8")
     this.process.stdout.on("data", (chunk) => this.onData(String(chunk)))

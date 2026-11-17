@@ -86,6 +86,7 @@ class SparseReadBridge {
       cwd: this.cwd,
       env: { ...process.env },
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     })
     this.process.stdout.on("data", (chunk: Buffer) => this.onData(String(chunk)))
     this.process.stderr.on("data", (chunk: Buffer) => {

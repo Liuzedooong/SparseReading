@@ -81,7 +81,7 @@ test("starts on first request, checks the Pi protocol, and unwraps JSONL results
   assert.deepEqual(fake.launches[0], {
     command: runtime.python,
     args: ["-m", "sparseread_agent_tools.bridge", "--host", "pi", "--workspace", runtime.workspace, "--mode", "auto"],
-    options: { cwd: runtime.workspace, stdio: ["pipe", "pipe", "pipe"] },
+    options: { cwd: runtime.workspace, stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
   })
   await bridge.shutdown()
 })
